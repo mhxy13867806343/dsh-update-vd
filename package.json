@@ -1,6 +1,6 @@
 {
   "name": "@mhxy13867806343/dsh-update-vd",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "description": "DSH Desktop 桌面增强：① 更新中心（侧栏版本号 + 进度条弹窗 + 一键装好 + 断点续传）② 设置里的「技能」页 ③ 设置里的「MCP」页 ④ 侧栏「笔记」（命令/git 片段：增删改查、搜索、每页 10/20/50/100、多选插入聊天输入框） —— 技能与 MCP 都支持本机其它 AI 工具导入（Codex / Claude Code / Cursor …）与按源地址联网搜索",
   "type": "module",
   "main": "./lib/index.js",
