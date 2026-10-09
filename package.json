@@ -1,7 +1,7 @@
 {
   "name": "@mhxy13867806343/dsh-update-vd",
-  "version": "1.0.0",
-  "description": "DSH Desktop 更新中心：侧栏版本号 + 一条「更新」按钮 + 带进度条的更新弹窗，下载完自动替换 /Applications 里的 app 并重启（不用再手动把 DMG 里的 app 拖进 Applications）。支持断点续传。",
+  "version": "1.1.0",
+  "description": "DSH Desktop 桌面增强：① 更新中心（侧栏版本号 + 进度条弹窗 + 一键装好，支持断点续传）② 设置里的「技能」页（列表/搜索/新增/编辑/删除/导入）③ 设置里的「MCP」页（服务器增删改查 + 即时挂载）。",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
@@ -32,7 +32,7 @@
   },
   "meta": {
     "title": "更新中心",
-    "description": "侧栏显示当前版本与更新按钮，点开是带进度条的更新弹窗；下载完成后自动替换 /Applications 里的 DSH Desktop 并重启，支持取消二次确认、后台升级与断点续传。"
+    "description": "更新中心（进度条 + 一键装好 + 断点续传）+ 设置里的技能管理与 MCP 管理（列表/搜索/新增/编辑/删除/导入，删除二次确认）。"
   },
   "repository": {
     "type": "git",

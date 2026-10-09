@@ -33,6 +33,21 @@
 - 退出旧 app 用三保险：`killall -TERM <CFBundleExecutable>` → `osascript … quit` →
   等它的 HTTP 端口关掉，超时再 `killall -KILL`。
 
+### 4. 设置 → **技能**（`settings.section` = skills）
+- 列出所有技能（含随包发布的、项目里的，只读的会标出来），带来源与磁盘路径；
+- **搜索**（名字 / 描述）；**新增**、**编辑**（改名字 / 描述 / Markdown 正文）；
+- **删除**要二次确认（并显示会被删掉的路径）；
+- **导入**：给一个 http/https 地址（抓 SKILL.md），或给一个本机路径（技能目录 / 单个 .md）；
+  重名会明确报错，不覆盖。
+- 可写目录：`~/.dsh/skills`、`~/.agents/skills`（随包 / 项目里的只展示，不改写）。
+
+### 5. 设置 → **MCP**（`settings.section` = mcp）
+- 列出 MCP 服务器（名字 / 类型 / 地址或命令 / 是否连上）；
+- **搜索**、**新增**、**编辑**、**删除**（要确认）、**启用 / 停用**；
+- 两种类型都支持：`streamable-http`（URL + 请求头）与 `stdio`（命令 + 参数 + 环境变量）；
+- 清单存在 `~/.dsh/mcp-servers.json`，保存后**立刻挂载/断开**（内部按 `@deepseek-ai/dsh-mcp-client`
+  的行来动态挂载），不用改 profile 的 patch，也不用重启。连不上会明确告诉你哪个服务器、什么原因。
+
 ---
 
 ## 🚀 如何安装
