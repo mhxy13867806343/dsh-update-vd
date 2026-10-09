@@ -27,7 +27,9 @@ r = mod.__test.insertTextIntoInput('git log');
 check('草稿是空白时不加多余空行', sent === 'git log', JSON.stringify(sent));
 uiSession = { adapter: { current: { getSnapshot: () => ({ key: 's1', hooks: { input: { getSnapshot: () => ({ draft: '' }) } }, props: { inputActions: { insertText: (text) => { sent = text; } } } }) } } };
 r = mod.__test.insertTextIntoInput('只有 insertText 也能用');
-check('退到 insertText', r.ok === true && r.via === 'insertText' && sent === '只有 insertText 也能用');
+// insertText(text) 需要 captureInsertion() 给的 span，只传文本会抛错 —— 这条分支已被去掉，
+// 只有 insertText 可用时不再硬用，而是走 DOM 兜底（本测试环境没有输入框 → no-input）
+check('只有 insertText 时不硬用（避免抛错），改走 DOM 兜底', r.ok === false && r.reason === 'no-input', JSON.stringify(r));
 
 console.log('\n— 没有会话 / 没有服务 —');
 uiSession = { adapter: { current: { getSnapshot: () => ({ key: undefined, hooks: {}, props: {} }) } } };
