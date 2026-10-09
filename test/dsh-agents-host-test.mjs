@@ -207,16 +207,31 @@ check('一键取用本机预设（复制成自定义）', installLocal.data.ok =
 
 // ── 10. 在线搜索：GitHub 源（真实联网）──────────────────────────────────
 console.log('— 在线搜索（GitHub，真实联网）—');
+// 数一下真实请求次数：GitHub 未登录只有 60 次/小时，缓存必须真的省下请求
+const realFetch = globalThis.fetch;
+let requestCount = 0;
+globalThis.fetch = (...args) => {
+	requestCount += 1;
+	return realFetch(...args);
+};
 let online = 0;
 for (const [sourceId, expectId] of [['upstream-harness', 'standard'], ['mobile-use', 'mobile-use']]) {
 	try {
+		const before = requestCount;
 		const result = await call(`${P}/agents/search`, { sourceId, query: '' });
 		if (result.data.ok !== true) throw new Error(result.data.error);
 		const ids = result.data.results.map((item) => item.id);
-		check(`${sourceId} 搜到预设`, ids.length > 0, `扫了 ${result.data.source?.scanned} 个 patch 文件，命中：${ids.join(', ')}`);
+		const spent = requestCount - before;
+		check(`${sourceId} 搜到预设`, ids.length > 0, `扫了 ${result.data.source?.scanned} 个 patch 文件，花了 ${spent} 次请求，命中：${ids.join(', ')}`);
 		if (ids.length > 0) {
 			online += 1;
 			check(`${sourceId} 里有 ${expectId}`, ids.includes(expectId), ids.join(', '));
+			// 换关键字再搜一次：必须命中缓存、0 次新请求（否则两次就把配额烧光）
+			const before2 = requestCount;
+			const again = await call(`${P}/agents/search`, { sourceId, query: 'standard' });
+			const spent2 = requestCount - before2;
+			check(`${sourceId} 换关键字重搜命中缓存（0 次新请求）`, spent2 === 0 && again.data.source?.cached === true, `新请求 ${spent2} 次，cached=${again.data.source?.cached}`);
+			check(`${sourceId} 缓存里照样能按关键字过滤`, again.data.results.every((item) => `${item.id} ${item.name} ${item.description}`.toLowerCase().includes('standard')), again.data.results.map((item) => item.id).join(', ') || '(空)');
 			const install = await call(`${P}/agents/import`, { url: result.data.results.find((item) => item.id === (ids.includes(expectId) ? expectId : ids[0])).url, asCopy: true });
 			check(`从 ${sourceId} 一键安装`, install.data.ok === true && registry.has(install.data.id), install.data.error ?? `装成 ${install.data.id}`);
 		}
@@ -224,6 +239,7 @@ for (const [sourceId, expectId] of [['upstream-harness', 'standard'], ['mobile-u
 		check(`${sourceId} 联网搜索`, 'skip', String(error?.message ?? error).slice(0, 120));
 	}
 }
+globalThis.fetch = realFetch;
 if (online === 0) console.log('  （两个在线源都没通 —— 可能是没网/被墙，这几步记 SKIP）');
 
 console.log(failures === 0 ? `\n全部通过（跳过 ${skipped} 项）` : `\n${failures} 项失败（跳过 ${skipped} 项）`);

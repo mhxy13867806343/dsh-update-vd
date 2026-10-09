@@ -18,8 +18,8 @@ node test/dsh-notes-test.mjs               # 笔记各种视图（16 项）
 node test/dsh-notes-verify.mjs             # 笔记独立复核（14 项，含下面两条「必须保留」）
 node test/dsh-insert-test.mjs              # 插入契约（7 项）
 node test/dsh-changelog-test.mjs           # 更新日志弹窗（5 项）
-node test/dsh-agents-test.mjs              # 「智能体」设置页的各种视图（28 项）
-node test/dsh-agents-host-test.mjs         # 「智能体」宿主侧：新路由全打一遍（含真实联网）
+node test/dsh-agents-test.mjs              # 「智能体」设置页的各种视图（30 项）
+node test/dsh-agents-host-test.mjs         # 「智能体」宿主侧：新路由全打一遍（含真实联网，62 项）
 ```
 
 ## 「智能体」页（`settings.section` = `agents`，order 150）怎么测
@@ -33,8 +33,11 @@ node test/dsh-agents-host-test.mjs         # 「智能体」宿主侧：新路�
   `import` 宿主半边，用一个**假 ctx** apply：`connection.fetch.register` 收路由、
   `get('agentPresets')` 给一个假注册表、`plugin(模块, config)` 模拟「挂一行声明 = 注册表里多一条」。
   于是「保存 → 立刻出现在列表里 → 删掉 → 从列表消失」这条链路是真的走通了。
-  **其中在线搜索那一段会真的发网络请求**（GitHub API + `raw.githubusercontent.com`）：
-  没网 / 被墙时那几步记 `SKIP`，不算失败；想快点只看离线部分，就先断网或忽略 SKIP 行。
+  **其中在线搜索那一段会真的发网络请求**（GitHub API + `raw.githubusercontent.com`），而且把
+  `globalThis.fetch` 包了一层数请求次数：同一个仓库**第一次搜索要花 18 次请求**（repo + tree + 16 个
+  候选 patch 的 raw），**换个关键字重搜必须是 0 次新请求**（命中 `AGENT_SEARCH_CACHE`）——
+  这条断言是故意加重的，因为 GitHub 未登录只有 60 次/小时，缓存一旦失效这功能第二次就 403。
+  没网 / 被墙时那几步记 `SKIP`，不算失败。
 
 ### ⚠️ 「智能体」页必须保留的约束
 
@@ -59,6 +62,10 @@ node test/dsh-agents-host-test.mjs         # 「智能体」宿主侧：新路�
 6. **下载只能走 Blob + `URL.createObjectURL` + `<a download>`**，别改成 `location.href = …`。
 7. **不许静默覆盖**：`saveAgent` / `importAgent` 撞到内置（或别人管的）id 一定报错；撞到自己那些
    也必须显式 `overwrite: true` 或 `asCopy: true`。别为了「顺手」把它改成自动覆盖。
+8. **`AGENT_SEARCH_CACHE`（10 分钟）不能删**：GitHub 未登录 60 次/小时，一次预设搜索就要 18 次请求
+   （repo + tree + 每个候选 patch 一份 raw）。缓存存的是**未过滤**的完整结果，关键字过滤在本地做，
+   所以同一仓库换关键字重搜是 0 次请求。删了它，这功能搜两次就会被 GitHub 403。
+   注意它是本插件自己的 Map，**不要**去改技能那条路已有的 `TREE_CACHE`。
 
 ## ⚠️ 必须保留的两处修复（来自 62b1cff）
 

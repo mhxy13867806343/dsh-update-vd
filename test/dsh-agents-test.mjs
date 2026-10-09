@@ -157,6 +157,10 @@ html = render('在线搜索（搜索中）', [dataState, '', { kind: 'online' },
 if (!html.includes('正在搜')) { failures += 1; console.log('     FAIL 搜索中文案不对'); }
 html = render('在线搜索（加地址面板）', [dataState, '', { kind: 'online' }, false, sources, { ...offlineOnline, addOpen: true, addAddress: 'a/b' }, localDraft]);
 if (!html.includes('保存地址') || !html.includes('owner/repo')) { failures += 1; console.log('     FAIL 加地址面板不对'); }
+html = render('在线搜索（命中缓存要说明白）', [dataState, '', { kind: 'online' }, false, sources, { ...offlineOnline, results: [{ id: 'standard', name: 'standard', description: '标准模式', plugins: 29, tools: 19 }], source: { id: 'upstream-harness', cached: true, cachedAgeSeconds: 42 } }, localDraft]);
+if (!html.includes('秒前抓的缓存') || !html.includes('60 次/小时')) { failures += 1; console.log('     FAIL 缓存状态没说明'); }
+html = render('在线搜索（未命中缓存时不提缓存）', [dataState, '', { kind: 'online' }, false, sources, { ...offlineOnline, results: [{ id: 'standard', name: 'standard', description: '标准模式', plugins: 29, tools: 19 }] }, localDraft]);
+if (html.includes('秒前抓的缓存')) { failures += 1; console.log('     FAIL 没缓存却提了缓存'); }
 html = render('在线搜索（报错）', [dataState, '', { kind: 'online' }, false, sources, { ...offlineOnline, addError: '这个地址已经在清单里了', error: '连不上宿主' }, localDraft]);
 if (!html.includes('这个地址已经在清单里了') || !html.includes('连不上宿主')) { failures += 1; console.log('     FAIL 在线搜索错误没显示'); }
 
