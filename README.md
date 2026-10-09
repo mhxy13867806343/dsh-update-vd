@@ -66,6 +66,15 @@
 - 都是公开只读接口、不需要 key。GitHub 未登录配额 60 次/小时，所以仓库清单有 10 分钟缓存；
 - 搜索失败会把真实原因（HTTP 状态 / 认不出的地址）原样显示出来，不吞。
 
+### 7. 从本机其它 AI 工具导入（两个页面都有）
+
+| 页面 | 从哪读 | 读到什么 |
+| --- | --- | --- |
+| 技能 | `~/.codex/skills/*/SKILL.md`、`~/.claude/skills/*/SKILL.md`、`~/.agents/skills/*/SKILL.md` | 勾选后复制进 `~/.dsh/skills/<名字>/`（同名会标出来，不覆盖） |
+| MCP | Codex `~/.codex/config.toml`（含 `[mcp_servers.X.env]`）、Claude `~/.claude.json`、Cursor `~/.cursor/mcp.json`、Windsurf、Gemini CLI、OpenCode、Continue | 勾选后写进清单并**立刻挂载**；没连上会在界面上说清楚是哪个、为什么 |
+
+实测这台机器：从 Codex 扫到 **12 个技能 + 4 个 MCP 服务器**，从 Claude 扫到 1 个，导入后文件真的落到 `~/.dsh/skills/`、清单真的落盘、挂载真的被调用（生成的配置还拿 `@deepseek-ai/dsh-mcp-client` 的官方 Zod schema 校验过）。
+
 ---
 
 ## 🚀 如何安装
