@@ -1,0 +1,71 @@
+{
+  "name": "@mhxy13867806343/dsh-update-vd",
+  "version": "1.0.0",
+  "description": "DSH Desktop 更新中心：侧栏版本号 + 一条「更新」按钮 + 带进度条的更新弹窗，下载完自动替换 /Applications 里的 app 并重启（不用再手动把 DMG 里的 app 拖进 Applications）。支持断点续传。",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md",
+    "SUBMIT.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "meta": {
+    "title": "更新中心",
+    "description": "侧栏显示当前版本与更新按钮，点开是带进度条的更新弹窗；下载完成后自动替换 /Applications 里的 DSH Desktop 并重启，支持取消二次确认、后台升级与断点续传。"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mhxy13867806343/dsh-update-vd.git"
+  },
+  "homepage": "https://github.com/mhxy13867806343/dsh-update-vd",
+  "bugs": {
+    "url": "https://github.com/mhxy13867806343/dsh-update-vd/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "cordis-plugin",
+    "desktop",
+    "update",
+    "updater",
+    "macos"
+  ],
+  "license": "MIT",
+  "os": [
+    "darwin"
+  ],
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}
