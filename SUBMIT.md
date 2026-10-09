@@ -14,12 +14,13 @@ url: https://github.com/mhxy13867806343/dsh-update-vd
 name: mhxy13867806343/dsh-update-vd
 category: ui
 description:
-  en: 'DSH Desktop update center — sidebar version and update button, a progress-bar dialog, and unattended install (mount the DMG, replace the app, relaunch) with resume support.'
-  zh: 'DSH Desktop 更新中心——侧栏显示版本与更新按钮，弹窗带进度条，下载完成后自动挂载 DMG、替换应用并重启，支持断点续传与取消二次确认。'
+  en: 'DSH Desktop control center: one-click app updating (progress dialog, unattended install, resume), plus Skills / MCP / Notes / Agents settings pages — import from Codex, Claude Code, TRAE and WorkBuddy, search remote sources by address, and push notes straight into the composer.'
+  zh: 'DSH Desktop 桌面控制中心：更新中心（侧栏版本号 + 进度条弹窗 + 一键装好 + 断点续传），外加「技能 / MCP / 笔记 / 智能体」四个设置页——可从 Codex、Claude Code、TRAE、WorkBuddy 导入，按源地址联网搜索，侧栏笔记可多选插入聊天输入框。'
 ```
 > 英文那行**必须加引号**：描述里有「冒号+空格」，不加引号 YAML 会当成嵌套键解析失败。
 
-> 分类 `ui` 贴合它做的事（侧栏 + 弹窗都是界面）。描述只讲功能、不带营销词，且与代码一致。
+> 分类 `ui` 贴合它做的事（侧栏 + 弹窗 + 设置页都是界面）。描述只讲功能、不带营销词，且与代码一致。
+> 现在这个包里有 6 块能力：更新中心、技能页、MCP 页、笔记、智能体页、从其它 AI 导入。
 
 ## 前置门槛（已核对）
 
@@ -52,8 +53,9 @@ description:
    ## 提交插件
    - repo: https://github.com/mhxy13867806343/dsh-update-vd
    - 分类: ui
-   - 说明: DSH Desktop 更新中心（进度条 + 一键装好 + 断点续传）
+   - 说明: DSH Desktop 更新中心 + 技能 / MCP / 笔记 / 智能体 四个设置页
    ```
+   （包里 6 块能力：更新中心、技能、MCP、笔记、智能体、从其它 AI 导入）
 4. 合并后，站点 + dsh-market 会在次日自动收录（daily build）。之后在插件市场就能**一键安装**。
 
 ## 可选
