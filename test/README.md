@@ -20,6 +20,8 @@ node test/dsh-insert-test.mjs              # 插入契约（7 项）
 node test/dsh-changelog-test.mjs           # 更新日志弹窗（5 项）
 node test/dsh-agents-test.mjs              # 「智能体」设置页的各种视图（30 项）
 node test/dsh-agents-host-test.mjs         # 「智能体」宿主侧：新路由全打一遍（含真实联网，62 项）
+node test/dsh-other-ai-test.mjs            # 「从其它 AI 导入」独立视图（装了/没装两态、官网跳转、加删来源）
+node test/dsh-other-ai-host-test.mjs       # 同上的宿主侧：真实 HOME 只读探测 + 临时 DSH_HOME 写操作
 ```
 
 ## 「智能体」页（`settings.section` = `agents`，order 150）怎么测
@@ -66,6 +68,65 @@ node test/dsh-agents-host-test.mjs         # 「智能体」宿主侧：新路�
    （repo + tree + 每个候选 patch 一份 raw）。缓存存的是**未过滤**的完整结果，关键字过滤在本地做，
    所以同一仓库换关键字重搜是 0 次请求。删了它，这功能搜两次就会被 GitHub 403。
    注意它是本插件自己的 Map，**不要**去改技能那条路已有的 `TREE_CACHE`。
+
+## 「从其它 AI 导入」（「智能体」页里的独立视图）怎么测
+
+入口是「智能体」页列表头上那个「从其它 AI 导入」按钮，点开是一个**独立视图**（不是嵌套弹窗），
+交互与「在线搜索」同款（独立视图 + 返回）。默认四个来源：**Codex / Claude Code / TRAE / WorkBuddy**。
+
+- 探测路径（都是 macOS 上实测出来的，**不要凭印象改**）：
+  | 来源 | 判据 | 可导入什么 | 官网 |
+  | --- | --- | --- | --- |
+  | Codex | `~/.codex` 存在 | `~/.codex/AGENTS.md`（全局指令）、`~/.codex/prompts/*.md` | https://developers.openai.com/codex/ |
+  | Claude Code | `~/.claude/agents` 或 `~/.claude` 存在 | `~/.claude/agents/*.md`（子代理）、`~/.claude/commands/*.md` | https://claude.com/product/claude-code |
+  | TRAE | `/Applications/Trae.app`（或 `Trae CN.app`）/ `trae` CLI **并且** 配置目录在 | `~/.trae/skills/*/SKILL.md`、`~/.trae/memory/user_profile.md`、`~/.trae-cn/skills/*/SKILL.md` | https://www.trae.cn/ |
+  | WorkBuddy | `~/.workbuddy` 存在 | `SOUL.md` / `IDENTITY.md` / `USER.md`、`~/.workbuddy/skills/*/SKILL.md` | https://www.workbuddy.ai/ |
+  **TRAE 是特例**：光有 `~/.trae`、`~/.trae-cn` 只是别的工具留下的配置残渣，
+  必须 app 或 CLI 在才算「装了」（`installed=false` + `partial=true`），界面照旧显示「去官网下载安装」。
+  自带的重型技能包（`~/.trae/builtin_skills`、`~/.trae/builtin/global/skills`）**故意不列**：太大且依赖它的运行时。
+
+- `test/dsh-other-ai-test.mjs`：纯客户端，跟别的渲染测试一样用 `renderToStaticMarkup` ＋ 受控 `useState` 队列。
+  **队列顺序 = `AgentsPage` 里 `useState` 的调用顺序，一共 9 个**（前 7 个是这页早就有的）：
+  `state, query, mode, busy, sources, online, draft, ai, aiBusy, aiOpt` —— 少喂一个后面就串位。
+  覆盖：装了/没装两态、未装的官网链接（`window.open(..., '_blank', 'noopener,noreferrer')`，**不许** `location.href`）、
+  装了能列出可导入项、「已导入」标记、导入重名提示、加/删第三方来源、返回按钮、列表页那个新入口。
+- `test/dsh-other-ai-host-test.mjs`：宿主侧，**分两个进程**：
+  1. **主进程**在**真实 `HOME`** 上只读跑 `detectOtherAiToolkits()`（只有 `existsSync`/`readdir`，一个字节都不写），
+     断言写的是**结构**而不是「一定装了谁」：正好 4 个来源、每个都有 `probeNote`/`homepage`/`format`、
+     没装的 `items` 必须为空、TRAE 那种「只有配置残渣」必须 `installed=false && partial=true`；
+     文件真在的话还要验「`~/.codex/AGENTS.md` 被扫出来了」「Claude 子代理的 frontmatter 生效」。
+  2. **写操作必须走子进程**（`DSH_HOME=/tmp/dsh-other-ai-home` 再 `spawn` 自己）——
+     因为 `lib/resources.js` 在**模块加载时**就把 `DSH_HOME` / `AGENT_STORE` / `skill-sources.json`
+     的路径算成常量了：主进程要是在真实 HOME 下先 `import` 过它，后面再改 `process.env.DSH_HOME` 也没用，
+     写操作会落进**真实的** `~/.dsh/`。子进程里用假 ctx 把 `/other-ai`、`/other-ai/read`、
+     `/other-ai/import` 与 `other-ai` 那一类 `/sources*` 全打一遍，最后断言
+     **真实的 `~/.dsh/agent-presets.json` 的 mtime/size 与跑之前一模一样**。
+
+### ⚠️ 「从其它 AI 导入」必须保留的约束
+
+1. **探测要快、要只读**：只在 `/other-ai` 被调用时探测一次，用 `existsSync` / 单层 `readdir` 直接命中，
+   **不要**递归扫 home，也不要在进程启动时扫（宿主 `apply()` 里那条路径不能加任何扫描）。
+2. **探测失败/目录不存在一律容错**：`detectOtherAiToolkits` 的每个来源、每个 extra 都包了 try/catch，
+   坏掉的来源只在自己那条上显示 error，不许把 `/other-ai` 整条接口带崩，更不许崩进程。
+3. **`listSources()` 里那个 `kind:'custom'` 的「自定义来源…」占位照旧不出现**（与 skills/mcp/agents 同一套约定），
+   所以 `sources['other-ai']` 一开始是空数组。
+4. **磁盘上第 4 个键叫 `otherAi`，不叫 `other-ai`**：`skill-sources.json` 的读者不只本插件，
+   键名要能当普通标识符用。读取时两个都认（老文件兼容），写入一律写 `otherAi`。
+5. **`listOtherAi()` 的响应里不许带 `content`**：装了 Claude Code 的机器一次能扫出十几万字，
+   列一趟就要传几十上百 KB。要正文走 `/other-ai/read`。这条有断言盯着。
+6. **没装的不许藏**：未检测到的来源也要渲染出来，带「没检测到 X」+ 可点的官网按钮
+   （`window.open(homepage, '_blank', 'noopener,noreferrer')`，新窗口）。
+7. **重名不许静默覆盖**：导入走的是既有的 `importAgent`，所以撞内置/别人管的照样报错、
+   撞自己那几条要显式 `overwrite`；唯一的例外是**同一来源的同一项再导一次**——那是幂等刷新，
+   否则用户连点两次就报错太蠢。这条有断言（「同一项再导一次是幂等刷新（不报错）」）。
+8. **导入出来的预设正文必须是一行 `@deepseek-ai/dsh-persona`**（用现成的 `personaPlugins()` 包，
+   不要手搓形状），并且带上 `external { via, toolkit, item, path, importedAt, truncated }` 溯源 ——
+   那个视图的「已导入」标记与 `/agents` 列表里的「其它 AI · <来源>」标签都靠它。
+9. **`importAgent` 的 `record` 入参**：为了让「从其它 AI 导入」复用那条链路上的重名/挂载逻辑，
+   `importAgent` 多认了一个 `input.record`（调用方已经把内容读好、算成一条记录了）。
+   不传这个键时**行为必须与以前完全一样** —— `dsh-agents-host-test.mjs` 那 62 项就是这条的后盾。
+10. **`sourceKind('other-ai')` 之外的取值仍归 'skills'**：`skills` / `mcp` / `agents` 三个老 kind 的语义
+    一个字都不许动（`dsh-agents-host-test.mjs` 里有「sources.skills / mcp 行为不变」这条断言）。
 
 ## ⚠️ 必须保留的两处修复（来自 62b1cff）
 

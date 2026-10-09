@@ -68,7 +68,8 @@
   重名会明确报错，并给出「自动改个名字」和「覆盖同名自定义预设」两个显式选项 —— **不会静默覆盖**；
 - **导出**：单条导出 + 全部导出，下载成文件（Blob + `createObjectURL` + `<a download>`）。
   两种格式：本插件 JSON（再导入时名字/简介/模型备注一起还原）、DSH 补丁 YAML（贴进 bundle 就能用）；
-- **在线搜索 + 装第三方**：见下面第 7 节。
+- **在线搜索 + 装第三方**：见下面第 7 节；
+- **从其它 AI 导入**：见下面第 9 节（页面顶部的「从其它 AI 导入」按钮，点开是独立视图）。
 
 数据落在 `~/.dsh/agent-presets.json`。保存后在运行时动态挂载那一行声明
 （跟 MCP 一个套路：`ctx.plugin(模块, config)`），所以**不用改 profile 的 patch、也不用重启**；
@@ -111,7 +112,34 @@
 
 实测这台机器：从 Codex 扫到 **12 个技能 + 4 个 MCP 服务器**，从 Claude 扫到 1 个，导入后文件真的落到 `~/.dsh/skills/`、清单真的落盘、挂载真的被调用（生成的配置还拿 `@deepseek-ai/dsh-mcp-client` 的官方 Zod schema 校验过）。
 
-### 9. 侧栏「笔记」（在「充值」下面）
+### 9. 从其它 AI 导入（**智能体**页顶部的独立视图）
+
+点「智能体」页头上的「从其它 AI 导入」→ 一个**独立视图**（和「在线搜索」同款交互：独立视图 + 返回）。
+默认四个来源，**装了就把里面的智能体/提示词一键导成 DSH 智能体预设**，没装就**照旧显示出来**并给官网入口
+（`window.open` 新窗口）—— 不把没装的藏起来。
+
+| 来源 | 探测判据 | 能导入什么 | 官网 |
+| --- | --- | --- | --- |
+| **Codex** | `~/.codex` 存在 | `~/.codex/AGENTS.md`（它的全局指令文件）、`~/.codex/prompts/*.md` | [developers.openai.com/codex](https://developers.openai.com/codex/) |
+| **Claude Code** | `~/.claude/agents` 或 `~/.claude` 存在 | `~/.claude/agents/*.md`（子代理：`name`/`description` 来自 frontmatter，正文＝系统提示词）、`~/.claude/commands/*.md` | [claude.com/product/claude-code](https://claude.com/product/claude-code) |
+| **TRAE** | `/Applications/Trae.app`（国内版 `Trae CN.app`）或 `trae` CLI **并且** 配置目录在 | `~/.trae/skills/*/SKILL.md`、`~/.trae/memory/user_profile.md`、`~/.trae-cn/skills/*/SKILL.md` | [trae.cn](https://www.trae.cn/) |
+| **WorkBuddy** | `~/.workbuddy` 存在 | `SOUL.md`（人格总纲）/ `IDENTITY.md`（身份卡）/ `USER.md`（用户画像）、`~/.workbuddy/skills/*/SKILL.md` | [workbuddy.ai](https://www.workbuddy.ai/) |
+
+- **Codex 没有「子代理」这个概念**，所以能导的是「全局指令 + 提示词」，界面上写明了它们是它的全局指令文件；
+- **TRAE 是特例**：光有 `~/.trae` / `~/.trae-cn` 只是别的工具留下的配置残渣，必须 app 或 CLI 在才算「装了」，
+  否则界面上标「只有配置残渣」并显示下载入口。它自带的重型技能包（`builtin_skills` 等）故意不列 ——
+  几十上百 KB 且依赖它的运行时，导过来没有意义；
+- **导入的形态**：因为这几家都不是 DSH 预设格式，统一转成「一段系统提示词」的 DSH 智能体预设
+  （正文就是一行 `@deepseek-ai/dsh-persona`），落到 `~/.dsh/agent-presets.json` 并**立刻挂载**。
+  撞内置/撞已有都会**明确报错**，可以勾「重名自动改名」导成副本；只有「同一来源的同一项再导一次」
+  才当作幂等刷新（不然连点两次就报错太蠢）；
+- **可以加第三方来源**：填一个**本机路径**（md 文件，或一个目录 —— 里面的 `*.md` 会一个一个列出来）
+  或一个 **http/https 地址**（一个文件，或一个 GitHub 仓库 —— 会去找里面的 `AGENTS.md` / `CLAUDE.md` /
+  `agents/` / `prompts/`）。加进清单后能删；删来源**不会**删已经导进来的预设；
+- **探测是只读且很快的**：只看它自己的配置目录/可执行文件在不在（`existsSync` + 单层 `readdir`），
+  不递归扫 home、不上网、进程启动时也不扫（打开这个视图才跑一次），界面上把「探测的是什么」原样写出来。
+
+### 10. 侧栏「笔记」（在「充值」下面）
 
 - 点侧栏那行「📝 笔记 N」→ 中间弹窗；
 - **新增 / 编辑 / 删除**（删除要二次确认）；标题最多 **50 字**、内容最多 **1000 字**（都带实时字数）；
