@@ -1,7 +1,7 @@
 {
   "name": "@mhxy13867806343/dsh-update-vd",
-  "version": "1.6.0",
-  "description": "DSH Desktop 桌面增强：① 更新中心（侧栏版本号 + 进度条弹窗 + 一键装好 + 断点续传）② 设置里的「技能」页 ③ 设置里的「MCP」页 ④ 侧栏「笔记」（命令/git 片段：增删改查、搜索、每页 10/20/50/100、多选插入聊天输入框） —— 技能与 MCP 都支持本机其它 AI 工具导入（Codex / Claude Code / Cursor …）与按源地址联网搜索",
+  "version": "1.7.0",
+  "description": "DSH Desktop 桌面增强：① 更新中心（侧栏版本号 + 进度条弹窗 + 一键装好 + 断点续传）② 设置里的「技能」页 ③ 设置里的「MCP」页 ④ 设置里的「智能体」页（DSH Agent 预设：列表/搜索/新建/编辑/删除/导入导出/装第三方）⑤ 侧栏「笔记」（命令/git 片段：增删改查、搜索、每页 10/20/50/100、多选插入聊天输入框） —— 技能 / MCP / 智能体都支持从本机其它 AI 工具导入（Codex / Claude Code / Cursor …）与按源地址联网搜索",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
@@ -32,7 +32,7 @@
   },
   "meta": {
     "title": "更新中心",
-    "description": "更新中心 + 技能管理 + MCP 管理；技能与 MCP 都能从互联网上按「源地址」搜索（内置多个源，也可自定义地址）。"
+    "description": "更新中心 + 技能管理 + MCP 管理 + 智能体（Agent 预设）管理；技能 / MCP / 智能体都能从互联网上按「源地址」搜索（内置多个源，也可自定义地址）。"
   },
   "repository": {
     "type": "git",
@@ -54,6 +54,7 @@
     "desktop",
     "update",
     "updater",
+    "agent-preset",
     "macos"
   ],
   "license": "MIT",
