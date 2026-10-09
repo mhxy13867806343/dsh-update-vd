@@ -1,3 +1,6 @@
+import { fileURLToPath } from 'node:url';
+const CLIENT_PATH = fileURLToPath(new URL('../lib/client.js', import.meta.url));
+
 import { createRequire } from 'node:module';
 const require = createRequire(process.env.DSH_TEST_DEPS ?? '/tmp/dsudep9/package.json');
 const React = require('react');
@@ -6,7 +9,7 @@ globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null)
 globalThis.window = { __ModuleLoader__: { load: (d) => (captured = d) }, addEventListener: () => {}, removeEventListener: () => {}, getSelection: () => null };
 globalThis.document = { visibilityState: 'visible', addEventListener: () => {}, removeEventListener: () => {}, querySelectorAll: () => [], createRange: () => ({ selectNodeContents() {}, collapse() {} }), execCommand: () => true };
 let captured = null;
-await import('new URL('../lib/client.js', import.meta.url).pathname');
+await import(CLIENT_PATH);
 let uiSession = undefined;
 const mod = captured.factory((id) => { if (id === 'react') return React; throw new Error(id); });
 const slots = { inject: (_k, cb) => cb(), register: () => {} };
@@ -16,13 +19,13 @@ const check = (l, ok, d) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${l}${d ? '
 
 console.log('— 插入：走官方 uiSession API —');
 let sent = null;
-uiSession = { adapter: { current: { getSnapshot: () => ({ key: 's1', hooks: { input: { draft: '已有草稿' } }, props: { inputActions: { setDraft: (text) => { sent = text; } } } }) } } };
+uiSession = { adapter: { current: { getSnapshot: () => ({ key: 's1', hooks: { input: { getSnapshot: () => ({ draft: '已有草稿' }) } }, props: { inputActions: { setDraft: (text) => { sent = text; } } } }) } } };
 let r = mod.__test.insertTextIntoInput('git status');
 check('用 setDraft 且保留已有草稿', r.ok === true && r.via === 'setDraft' && sent === '已有草稿\n\ngit status', JSON.stringify({ r, sent }));
-uiSession = { adapter: { current: { getSnapshot: () => ({ key: 's1', hooks: { input: { draft: '   ' } }, props: { inputActions: { setDraft: (text) => { sent = text; } } } }) } } };
+uiSession = { adapter: { current: { getSnapshot: () => ({ key: 's1', hooks: { input: { getSnapshot: () => ({ draft: '   ' }) } }, props: { inputActions: { setDraft: (text) => { sent = text; } } } }) } } };
 r = mod.__test.insertTextIntoInput('git log');
 check('草稿是空白时不加多余空行', sent === 'git log', JSON.stringify(sent));
-uiSession = { adapter: { current: { getSnapshot: () => ({ key: 's1', hooks: { input: { draft: '' } }, props: { inputActions: { insertText: (text) => { sent = text; } } } }) } } };
+uiSession = { adapter: { current: { getSnapshot: () => ({ key: 's1', hooks: { input: { getSnapshot: () => ({ draft: '' }) } }, props: { inputActions: { insertText: (text) => { sent = text; } } } }) } } };
 r = mod.__test.insertTextIntoInput('只有 insertText 也能用');
 check('退到 insertText', r.ok === true && r.via === 'insertText' && sent === '只有 insertText 也能用');
 

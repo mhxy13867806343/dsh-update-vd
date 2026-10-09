@@ -1,3 +1,6 @@
+import { fileURLToPath } from 'node:url';
+const CLIENT_PATH = fileURLToPath(new URL('../lib/client.js', import.meta.url));
+
 import { createRequire } from 'node:module';
 const require = createRequire(process.env.DSH_TEST_DEPS ?? '/tmp/dsudep9/package.json');
 const React = require('react');
@@ -7,7 +10,7 @@ globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null)
 globalThis.window = { __ModuleLoader__: { load: (d) => (captured = d) }, addEventListener: () => {}, removeEventListener: () => {}, open: () => {} };
 globalThis.document = { visibilityState: 'visible', addEventListener: () => {}, removeEventListener: () => {}, querySelectorAll: () => [], createRange: () => ({ selectNodeContents() {}, collapse() {} }), execCommand: () => true };
 let captured = null;
-await import('new URL('../lib/client.js', import.meta.url).pathname');
+await import(CLIENT_PATH);
 let queue = [];
 const React2 = Object.create(React);
 React2.useState = (init) => React.useState(queue.length > 0 ? queue.shift() : typeof init === 'function' ? init() : init);

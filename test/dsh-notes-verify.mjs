@@ -1,3 +1,6 @@
+import { fileURLToPath } from 'node:url';
+const CLIENT_PATH = fileURLToPath(new URL('../lib/client.js', import.meta.url));
+
 /**
  * 独立复核（第二个 agent 写的，不复用 /tmp/dsh-notes-test.mjs）：
  *   A. notesToText 的单条 / 多条格式
@@ -22,7 +25,7 @@ globalThis.window = { __ModuleLoader__: { load: (d) => (captured = d) }, addEven
 globalThis.document = { visibilityState: 'visible', addEventListener: () => {}, removeEventListener: () => {}, querySelectorAll: () => [], createRange: () => ({ selectNodeContents() {}, collapse() {} }), execCommand: () => true };
 globalThis.Event = class { constructor(type) { this.type = type; } };
 
-await import('new URL('../lib/client.js', import.meta.url).pathname');
+await import(CLIENT_PATH);
 
 let queue = [];
 const React2 = Object.create(React);

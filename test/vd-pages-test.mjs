@@ -1,3 +1,6 @@
+import { fileURLToPath } from 'node:url';
+const CLIENT_PATH = fileURLToPath(new URL('../lib/client.js', import.meta.url));
+
 /**
  * 渲染测试：把「技能」「MCP」两个设置页的**每种模式**都渲染一遍。
  * SSR 不会跑 state 变化，所以用受控 useState 把初始 state 直接喂进去 ——
@@ -13,7 +16,7 @@ globalThis.window = { __ModuleLoader__: { load: (d) => (captured = d) }, addEven
 globalThis.document = { visibilityState: 'visible', addEventListener: () => {}, removeEventListener: () => {} };
 globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, skills: [], servers: [], roots: [] }) });
 
-await import('new URL('../lib/client.js', import.meta.url).pathname');
+await import(CLIENT_PATH);
 const mod = captured.factory((id) => {
 	if (id === 'react') return React;
 	throw new Error(`unexpected require(${id})`);
