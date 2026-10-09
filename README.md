@@ -48,6 +48,24 @@
 - 清单存在 `~/.dsh/mcp-servers.json`，保存后**立刻挂载/断开**（内部按 `@deepseek-ai/dsh-mcp-client`
   的行来动态挂载），不用改 profile 的 patch，也不用重启。连不上会明确告诉你哪个服务器、什么原因。
 
+### 6. 在线搜索（两个页面都有，**多个源可选**）
+
+技能页进「导入」就能看到；MCP 页点「在线搜索」。选一个**源地址** → 填关键字 → 搜索 → 一键取用。
+
+| 页面 | 内置源 | 说明 |
+| --- | --- | --- |
+| 技能 | `anthropics/skills` | Anthropic 官方技能库（20+ SKILL.md） |
+| 技能 | `obra/superpowers` | 社区技能合集 |
+| 技能 | 自定义地址… | 填 `owner/repo` 或完整 GitHub 链接（任何放 SKILL.md 的仓库都能搜） |
+| MCP | MCP 官方注册表 | `registry.modelcontextprotocol.io`，按关键字搜，结果自带 `streamable-http` URL 或 stdio 启动命令 |
+| MCP | `modelcontextprotocol/servers` | 官方参考实现（自动填成 `npx -y @modelcontextprotocol/server-<名字>`） |
+| MCP | 自定义地址… | 别的注册表 URL，或 `owner/repo` |
+
+- 技能：搜到直接「导入这个」→ 抓 raw 的 SKILL.md 存成 `~/.dsh/skills/<名字>/SKILL.md`；
+- MCP：搜到点「用它新建」→ 表单自动填好，确认后再保存（保存即挂载）；
+- 都是公开只读接口、不需要 key。GitHub 未登录配额 60 次/小时，所以仓库清单有 10 分钟缓存；
+- 搜索失败会把真实原因（HTTP 状态 / 认不出的地址）原样显示出来，不吞。
+
 ---
 
 ## 🚀 如何安装
