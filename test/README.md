@@ -22,6 +22,14 @@ node test/dsh-agents-test.mjs              # 「智能体」设置页的各种�
 node test/dsh-agents-host-test.mjs         # 「智能体」宿主侧：新路由全打一遍（含真实联网，62 项）
 node test/dsh-other-ai-test.mjs            # 「从其它 AI 导入」独立视图（装了/没装两态、官网跳转、加删来源）
 node test/dsh-other-ai-host-test.mjs       # 同上的宿主侧：真实 HOME 只读探测 + 临时 DSH_HOME 写操作
+node test/dsh-conversations-test.mjs       # 「从其它 AI 导入 → 对话记录」页签（页签/列表/搜索/分页/多选/导入结果）
+node test/dsh-conversations-host-test.mjs  # 同上的宿主侧：真实 HOME 只读解析 + 临时 DSH_HOME 写会话
+```
+
+一次跑完（14 套 → 现在 16 套）：
+
+```bash
+cd <仓库根> && export DSH_TEST_DEPS=/tmp/dsudep9/package.json && for f in test/*.mjs; do node "$f" || echo "FAILED $f"; done
 ```
 
 ## 「智能体」页（`settings.section` = `agents`，order 150）怎么测
@@ -136,3 +144,83 @@ node test/dsh-other-ai-host-test.mjs       # 同上的宿主侧：真实 HOME �
    图标按钮会退化成浏览器默认外观。同一分支的更新行是自带 style 的，笔记行也必须带。
 
 改动 `lib/client.js` 里的笔记段落时，请重跑上面 5 个测试；改了这两处必须先说服自己为什么。
+
+## 「从其它 AI 导入 → 对话记录」（「智能体」页里那个视图的第二个页签）怎么测
+
+入口：`设置 → 智能体 → 从其它 AI 导入`，页签条上切到**「对话记录」**（默认还是「智能体预设」，
+**老行为一个字没动**）。这一类的目标不是导「智能体」，而是把 Codex / Claude Code / WorkBuddy
+里聊过的**会话**导成**真正的 DSH 会话**（导完在左侧会话列表里打开、能接着聊）。
+
+- 本机探明的对话存放位置（**macOS 上实测出来的，不要凭印象改**）：
+  | 来源 | 对话文件 | 格式 | 本机量 |
+  | --- | --- | --- | --- |
+  | Codex | `~/.codex/sessions/**/rollout-*.jsonl`（`YYYY/MM/DD/`）+ `~/.codex/archived_sessions` | JSONL：首行 `session_meta`，正文 `response_item`（`message` / `reasoning` / `function_call*`），`event_msg` 是 token 统计（跳过） | 230 + 11 个文件 → **117 条会话**（一个 session 会分卷成多个文件，按 session_id 合并） |
+  | Claude Code | `~/.claude/projects/<转义目录>/<uuid>.jsonl` | JSONL：`type: user/assistant`，`message.content` 是字符串或 `[{type:text|tool_use|tool_result|thinking}]` | 22 条 |
+  | WorkBuddy | `~/.workbuddy/projects/<转义目录>/<uuid>.jsonl` | JSONL：`message`（带 role）/ `reasoning` / `function_call(_result)` / `ai-title` | 213 条（标题从 `~/.workbuddy/workbuddy.db` 的 `sessions` 表只读补上） |
+  | TRAE | `~/.trae/assistant`、`~/.trae-cn/assistant` **都是空目录** | 对话**不在文件里**（它自己的云端 / 应用内数据库） | **不支持解析**，界面如实写明 |
+
+- `test/dsh-conversations-test.mjs`：纯客户端。渲染套路同上（`renderToStaticMarkup` ＋ 受控
+  `useState` 队列）。**队列顺序 = `AgentsPage` 里 `useState` 的调用顺序，一共 19 个**（前 10 个是
+  这页早就有的，最后 9 个是「对话记录」新增的）：
+  `state, query, mode, busy, sources, online, draft, ai, aiBusy, aiOpt, aiTab, conv, convQuery,
+  convSource, convRows, convPageSize, convPage, convPicked, convResult` —— 少喂一个后面就串位；
+  第 11 个 `aiTab` 决定渲染哪一个页签。覆盖：两个页签切换（含「智能体预设」页签里**不出现**
+  对话 UI 的反向断言）、来源三态（装了 / 没装给官网按钮 / TRAE 明说解析不了）、列表有数据 /
+  空 / 搜不到 / 搜索命中、分页（每页 10 → 2 页、第 2 页只剩 2 条、每页 100 → 1 页）、
+  多选与全选本页、导入中按钮文案、导入结果逐条报错（ok / 跳过 / 失败三种行）、
+  导出 Markdown / 插入到输入框两条轻量备选、报错行、slot 没撞 id。
+- `test/dsh-conversations-host-test.mjs`：宿主侧，**分两个进程**：
+  1. **主进程**在**真实 `HOME`** 上只读跑 `scanConversations()` / `readConversation()`
+     （`readdir` / `readFile` / 只读打开 sqlite，一个字节都不写），断言写的是**结构与格式**：
+     每个来源解析出的条数 > 0、每条都有 id / 标题 / 时间 / 消息条数、至少一条有「首条用户消息
+     摘要」；完整读一个会话时角色（user/assistant/tool）与时间戳都在、`toSessionEvents()` 出来的
+     事件 `seq` 从 0 连续、surface 事件都带 `surfaceOp: "append"`、结尾是 `session/title`。
+     本机没有那个来源时记 `SKIP`，不写死数字。**TRAE 必须如实回报 `supported=false`**，
+     读单个会明确抛错，不许假装 0 条。
+  2. **写操作走子进程**（`DSH_HOME=/tmp/dsh-conv-home` 再 `spawn` 自己，并在里面另造一份假 HOME
+     的假对话文件）—— 因为 `lib/conversations.js` 在**模块加载时**就把 `DSH_HOME` / 会话存储根
+     算成常量了。子进程里把 `/other-ai/conversations`（清单）、`/list`、`/search`、`/read`、
+     `/import` 五个新路由全打一遍，断言：
+     · 真的落盘了 `session.v4.jsonl.zstd`（头行是 v4 会话头、`isSeeded:false`）；
+     · **把落盘日志喂给宿主自己的 `ctx.sessions.prepare(id, { seed })` 校验通过**（跟 resume /
+       恢复同一条校验路径 —— 这是「导完真能在左侧打开、能接着聊」的最硬一条证据）；
+     · 同一个对话再导一次是**跳过**（幂等），内容指纹变了才用 `-2` 的新会话 id；
+     · 失败**逐条报错**（不整批静默失败）；
+     · 有一个「假 `sessionPersistence` 服务」的用例，验**官方 API 那条路**优先
+       （`via === 'sessionPersistence'`、`create(header)` / `append(events)` / `flush` / `close` 都被调用）；
+     · 跑完断言**真实的 `~/.dsh/sessions` 目录指纹（文件数 + 最近 mtime）与跑之前一模一样**。
+
+### ⚠️ 「对话记录」必须保留的约束
+
+1. **纯加法**：`lib/conversations.js` 是**新文件**（宿主半边），`lib/client.js` 只**新增段落**
+   （`aiTab` / `conv*` 那 9 个 state、`loadConv`、`conversationsToMarkdown`、`otherAi` 里的页签条与
+   第二个分支）。**不要**去改 `OnlineSearch` / `SkillsPage` / `McpPage` / 笔记 / 更新那几段，
+   也不要动「智能体预设」那条分支的既有行为（默认页签就是 `agents`）。
+2. **既有路由语义不变**：`GET /other-ai` 不带参数时响应里**不能**多出 `conversations` 字段，
+   `kind` 省略一律按 `agents` 处理（`dsh-conversations-host-test.mjs` 有这条反向断言）。
+   新增的是 `/other-ai/conversations`、`/other-ai/conversations/list|search|read|import` 五条。
+3. **探测/解析一律只读**：别人的配置目录（`~/.codex`、`~/.claude`、`~/.workbuddy`）**一个字节都不许写**，
+   sqlite 要 `readOnly: true`；不递归整棵 home（Codex 只挖 4 层，Claude / WorkBuddy 2 层）。
+   列表要带 60 秒缓存（Codex 单文件几十 MB，一次打开视图不能把 home 读穿）。
+4. **导入优先走官方 API**：`ctx.sessionPersistence.create(header)` + `handle.append(events)`，
+   拿不到服务时才退回「按同一套编码自己写 `session.v4.jsonl.zstd`」（`projectKey` / `encodeSegment` /
+   多帧 zstd 每帧一条记录，规则抄自 `@deepseek-ai/dsh-session-persistence-jsonl`）。
+   **别改成只写文件**，也别改成裸 `fs.writeFile` 到真实 `~/.dsh`。
+5. **生成的日志必须能被宿主自己的校验接受**：头行 `version:4`、`isSeeded:false`；事件 `seq` 从 0 连续；
+   `system/message` / `user/message` / `assistant/message` 这些 surface 事件**必须**带
+   `surfaceOp: "append"`；`assistant/message` 的 `data` 必须带 `stream: []`（少了会被
+   「invalid settlement fields」拒掉）；`user/message` 的 `data.source.kind === "user"`，
+   `assistant/message` 的 `message.source` 必须有 `provider` + `model`。改动这块**必须**重跑
+   宿主侧那两个「Session 校验」断言。
+6. **幂等不许退化成「不去重」**：靠写进第一条用户消息 `source.importedFrom.importDigest` 的 16 位
+   内容指纹判断 —— 指纹一样就**跳过**；不一样就换 `-2` / `-3` 的会话 id **新建**，**绝不覆盖**已有会话。
+7. **逐条报错**：`importConversations()` 的返回值里 `results[]` 每条都要有 `ok`，失败那条要带
+   `error` 文案；`imported` / `skipped` / `failed` 三个计数必须对得上。
+8. **TRAE 不许装懂**：它的对话不落地成文件，就必须在 UI 和错误文案里明说
+   「暂不支持解析这个工具的对话格式」，不许显示成「0 个对话」然后让人以为可以导。
+9. **导入是「导成 DSH 会话」+ 两条轻量备选**：主按钮导成会话；另外必须保留
+   「导出 Markdown」与「插入到输入框」（走既有的 `downloadText` / `insertTextIntoInput`，
+   **不要**改这两个函数的行为）。UI 里必须写清两者的差别（前者能在左侧会话列表打开、能接着聊）。
+10. **写操作测试必须在子进程里跑**：`lib/conversations.js` 的 `DSH_HOME` / `SESSION_STORE_ROOT`
+    是模块加载时常量。测试要用 `DSH_UPDATER_SESSION_ROOT`（临时目录）或子进程 + 临时 `DSH_HOME`
+    来指开，跑完必须断言真实 `~/.dsh/sessions` 没被动过。
