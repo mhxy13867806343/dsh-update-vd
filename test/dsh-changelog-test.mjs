@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 const CLIENT_PATH = fileURLToPath(new URL('../lib/client.js', import.meta.url));
 
 import { createRequire } from 'node:module';
-const require = createRequire(process.env.DSH_TEST_DEPS ?? '/tmp/dsudep9/package.json');
+const require = createRequire(process.env.DSH_TEST_DEPS ?? new URL('../package.json', import.meta.url));
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const store = new Map();

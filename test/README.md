@@ -5,12 +5,10 @@
 ## 怎么跑
 
 ```bash
-# 1) 先准备 react（测试用 SSR 渲染客户端组件）
-mkdir -p /tmp/dsh-test-deps && cd /tmp/dsh-test-deps
-npm init -y && npm i react@18 react-dom@18
-export DSH_TEST_DEPS=/tmp/dsh-test-deps/package.json
+# 1) 装一次测试依赖（react/react-dom 已列在 devDependencies；不装进包里）
+cd <仓库根> && npm install
 
-# 2) 在仓库根目录跑
+# 2) 在仓库根目录跑（测试默认用仓库自己的依赖；想用别处的就设 DSH_TEST_DEPS）
 cd <仓库根>/lib && cp client.js /tmp/c.mjs && node --check /tmp/c.mjs    # 客户端语法
 node --check index.js && node --check resources.js                        # 宿主语法
 cd .. && node test/vd-pages-test.mjs       # 既有功能：更新行/更新弹窗/技能页/MCP 页（18 项）

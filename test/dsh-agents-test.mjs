@@ -8,7 +8,7 @@ const CLIENT_PATH = fileURLToPath(new URL('../lib/client.js', import.meta.url));
  * 导出、导入、在线搜索都能真的走一遍（slot 里抛错会整片空白）。
  */
 import { createRequire } from 'node:module';
-const require = createRequire(process.env.DSH_TEST_DEPS ?? '/tmp/dsudep9/package.json');
+const require = createRequire(process.env.DSH_TEST_DEPS ?? new URL('../package.json', import.meta.url));
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 

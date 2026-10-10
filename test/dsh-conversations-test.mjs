@@ -18,7 +18,7 @@ const CLIENT_PATH = fileURLToPath(new URL('../lib/client.js', import.meta.url));
  * 导入结果逐条报错、导出 Markdown / 插入到输入框两条轻量备选、以及新页的 slot 注册。
  */
 import { createRequire } from 'node:module';
-const require = createRequire(process.env.DSH_TEST_DEPS ?? '/tmp/dsudep9/package.json');
+const require = createRequire(process.env.DSH_TEST_DEPS ?? new URL('../package.json', import.meta.url));
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 

@@ -21,7 +21,7 @@ const CLIENT_PATH = fileURLToPath(new URL('../lib/client.js', import.meta.url));
  * 以及**反向断言**：「智能体」页里不再有「从其它 AI 导入」这个入口。
  */
 import { createRequire } from 'node:module';
-const require = createRequire(process.env.DSH_TEST_DEPS ?? '/tmp/dsudep9/package.json');
+const require = createRequire(process.env.DSH_TEST_DEPS ?? new URL('../package.json', import.meta.url));
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 
