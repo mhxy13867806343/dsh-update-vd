@@ -2,19 +2,23 @@ import { fileURLToPath } from 'node:url';
 const CLIENT_PATH = fileURLToPath(new URL('../lib/client.js', import.meta.url));
 
 /**
- * 渲染测试：「智能体」页里的**「从其它 AI 导入」独立视图**。
+ * 渲染测试：设置里**独立的一页**「导入」（`settings.section` id = `other-ai`，order 160），
+ * 也就是 v1.9.1 从「智能体」页搬出来的那套「从其它 AI 导入」UI。
  *
  * 跟别的渲染测试一个套路：`renderToStaticMarkup` ＋ 受控 `useState` 队列，
  * 把每种初始 state 直接喂进组件 —— 因为 SSR 不跑 state 变化、也不跑 useEffect
- * （所以这个视图的 useEffect 拉数据不会发请求，渲染的就是喂进去的那份 state）。
+ * （所以这一页的 useEffect 拉数据不会发请求，渲染的就是喂进去的那份 state）。
  *
- * 队列顺序 = `AgentsPage` 里 `useState` 的调用顺序（**9 个**，前 7 个是这页早就有的）：
- *   state, query, mode, busy, sources, online, draft, ai, aiBusy, aiOpt
- * 最后三个是「从其它 AI 导入」新增的，所以这里必须喂满 9 个，否则队列会串位。
+ * 队列顺序 = `OtherAiPage` 里 `useState` 的调用顺序（**15 个**）：
+ *   presets, busy, ai, aiBusy, aiOpt, aiTab, conv, convQuery, convSource,
+ *   convRows, convPageSize, convPage, convPicked, convResult, convCwd
+ * 少喂一个后面就串位；第 6 个 `aiTab` 决定渲染哪一个页签。
+ * （`presets` 是这一页自己拉的 `/agents` 清单，只用来算「已导入」标记；
+ *  `busy` 原来借的是「智能体」页的 state，搬出来之后是这一页自己的。）
  *
  * 覆盖：来源列表的「装了 / 没装」两态、未装的官网链接（window.open 新窗口）、
- * 装了能列出可导入项、「已导入」标记、导入重名提示、加/删第三方来源、返回按钮、
- * 以及列表页上那个新入口按钮。
+ * 装了能列出可导入项、「已导入」标记、导入重名提示、加/删第三方来源、
+ * 以及**反向断言**：「智能体」页里不再有「从其它 AI 导入」这个入口。
  */
 import { createRequire } from 'node:module';
 const require = createRequire(process.env.DSH_TEST_DEPS ?? '/tmp/dsudep9/package.json');
@@ -52,13 +56,29 @@ mod2.apply({
 	locale: { register: () => () => {}, getSnapshot: () => ({ active: 'zh' }) },
 });
 
+const otherAi = registered.find((e) => e.o.id === 'other-ai');
+if (otherAi === undefined) throw new Error('「导入」页（other-ai）没注册上');
 const agents = registered.find((e) => e.o.id === 'agents');
 if (agents === undefined) throw new Error('「智能体」页没注册上');
 
 const text = (html) => html.replace(/<style>[\s\S]*?<\/style>/gu, '').replace(/<[^>]+>/gu, ' · ').replace(/(\s*·\s*)+/gu, ' | ').replace(/\s+/gu, ' ').trim();
 
 let failures = 0;
+/** 渲染新页（15 个 state）。 */
 const render = (label, args) => {
+	queue = args;
+	try {
+		const html = renderToStaticMarkup(React.createElement(otherAi.C));
+		console.log(`  ok   ${label} → ${text(html).slice(0, 160)}`);
+		return html;
+	} catch (error) {
+		failures += 1;
+		console.log(`  FAIL ${label} → ${error.message}`);
+		return '';
+	}
+};
+/** 渲染「智能体」页（7 个 state）—— 用来做「入口已经搬走」的反向断言。 */
+const renderAgents = (label, args) => {
 	queue = args;
 	try {
 		const html = renderToStaticMarkup(React.createElement(agents.C));
@@ -90,14 +110,8 @@ const presetData = [
 	{ id: 'codex-agents', name: 'AGENTS.md（全局指令）', description: 'Codex 的全局指令文件', order: null, broken: null, origin: 'custom', originLabel: '其它 AI · Codex', bundle: null, external: { via: 'codex', toolkit: 'Codex', item: 'codex:agents-md:agents', path: '/Users/x/.codex/AGENTS.md' }, managed: true, writable: true, note: '', plugins: 1, tools: 0 },
 ];
 const dataState = { loading: false, presets: presetData, error: null, notice: null, registryError: null, model: { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'high' }, store: '/Users/x/.dsh/agent-presets.json' };
-/** 在线搜索那两个下拉源（这页老代码用得到，缺了会渲染不出 AgentSource）。 */
-const sources = [
-	{ id: 'local-shipped', label: '本机自带预设', kind: 'local', hint: '随包发布的那几个' },
-	{ id: 'upstream-harness', label: 'deepseek-ai/deepseek-harness', kind: 'github', hint: '上游官方预设' },
-];
-const online = { kind: 'agents', sourceId: 'local-shipped', custom: '', query: '', results: [], busy: false, error: null, limit: 24 };
-const draft = { text: '', url: '', path: '', name: '', id: '', asCopy: false, overwrite: false, asPrompt: false, error: null };
 const noAi = { loading: false, toolkits: [], error: null, notice: null, addOpen: false, addAddress: '', addLabel: '', addBusy: false, addError: null };
+const noConv = { loading: false, toolkits: [], probe: '', error: null, notice: null };
 
 /** 来源清单：codex / workbuddy 装了，claude 装了但没内容，trae 没装（只有配置残渣），外加一个自定义来源。 */
 const toolkits = [
@@ -147,15 +161,37 @@ const aiPartial = {
 	toolkits: [toolkits[0], { ...toolkits[1], items: [] }, { ...toolkits[4], id: 'oai-url-zzz', label: '坏掉的地址', custom: true, installed: false, items: [], error: '下载失败：HTTP 404' }],
 };
 
-// ── 1. 独立视图的基本形态 ────────────────────────────────────────────────
-console.log('— 「从其它 AI 导入」视图 —');
-let html = render('独立视图（4 个默认来源 + 1 个自定义）', [dataState, '', { kind: 'otherAi' }, false, sources, online, draft, aiData, '', {}]);
-expect(html, '独立视图', '从其它 AI 导入');
-expect(html, '独立视图', '返回');
-expect(html, '独立视图', '重新探测');
-expect(html, '独立视图', '只读探测本机的其它 AI 工具');
-expect(html, '独立视图', '4 / 5 个来源已装');
-expect(html, '独立视图', '重名自动改名');
+/** 15 个 state 的快捷构造（顺序＝ `OtherAiPage` 里 `useState` 的顺序）。 */
+const args = (patch = {}) => [
+	patch.presets ?? dataState.presets,
+	patch.busy ?? false,
+	patch.ai ?? aiData,
+	patch.aiBusy ?? '',
+	patch.aiOpt ?? {},
+	patch.aiTab ?? 'agents',
+	patch.conv ?? noConv,
+	patch.convQuery ?? '',
+	patch.convSource ?? '',
+	patch.convRows ?? [],
+	patch.convPageSize ?? 10,
+	patch.convPage ?? 1,
+	patch.convPicked ?? [],
+	patch.convResult ?? null,
+	patch.convCwd ?? '',
+];
+/** 「智能体」页只有 7 个 state：state, query, mode, busy, sources, online, draft。 */
+const agentsArgs = () => [dataState, '', { kind: 'list' }, false, [], { kind: 'agents', sourceId: '', custom: '', query: '', results: [], busy: false, error: null, addLimit: 24, limit: 24 }, { text: '', url: '', path: '', name: '', id: '', asCopy: false, overwrite: false, asPrompt: false, error: null }];
+
+// ── 1. 独立设置页的基本形态 ──────────────────────────────────────────────
+console.log('— 「导入」页（settings.section = other-ai）—');
+let html = render('独立设置页（4 个默认来源 + 1 个自定义）', args());
+expect(html, '独立设置页', '从其它 AI 导入');
+expect(html, '独立设置页', '重新探测');
+expect(html, '独立设置页', '只读探测本机的其它 AI 工具');
+expect(html, '独立设置页', '4 / 5 个来源已装');
+expect(html, '独立设置页', '重名自动改名');
+// 它是设置里的**一整页**，不再是「智能体」页里那个带「返回」的独立视图
+expectNot(html, '独立设置页', '返回');
 
 // ── 2. 装了的两态 ────────────────────────────────────────────────────────
 console.log('— 装了 / 没装两态 —');
@@ -196,13 +232,20 @@ expect(html, '可导入项', 'godot-dev');
 expect(html, '可导入项', '导入成 DSH 智能体');
 expect(html, '可导入项', 'Codex 的全局指令文件，整份就是它的行为准则');
 // 已经导过的那个显示「已导入」，且按钮换成「重新导入」
+// —— 「已导入」靠这一页自己拉的 /agents 清单（第 1 个 state），不再借「智能体」页的 state
 expect(html, '已导入标记', '已导入');
 expect(html, '已导入标记', '重新导入');
 // 装了但没内容的那一条要说清楚
 expect(html, '空内容', '装是装了，但它自己还没存任何可导入的智能体/提示词');
+// presets 拿不到时不该崩，也不该乱标「已导入」（standard 没有 external.item）
+html = render('presets 为空（/agents 没拉到时）', args({ presets: [] }));
+expectNot(html, 'presets 为空', '重新导入');
+html = render('presets 读不到（空数组也不崩）', args({ presets: [] }));
+expect(html, 'presets 读不到', '导入成 DSH 智能体');
 
 // ── 4. 第三方来源（加 / 删）──────────────────────────────────────────────
 console.log('— 第三方来源 —');
+html = render('第三方来源', args());
 expect(html, '第三方', '添加第三方来源');
 expect(html, '第三方', '保存来源');
 expect(html, '第三方', '~/my-agents，或 https://github.com/owner/repo');
@@ -217,19 +260,19 @@ if ((html.match(/删除这个来源/gu) ?? []).length !== 1) {
 
 // ── 5. 报错与状态行 ──────────────────────────────────────────────────────
 console.log('— 报错 / 加载 / 空 —');
-html = render('读不动的第三方来源', [dataState, '', { kind: 'otherAi' }, false, sources, online, draft, aiPartial, '', {}]);
+html = render('读不动的第三方来源', args({ ai: aiPartial }));
 expect(html, '来源报错', '下载失败：HTTP 404');
-html = render('探测中', [dataState, '', { kind: 'otherAi' }, false, sources, online, draft, { ...noAi, loading: true }, '', {}]);
+html = render('探测中', args({ ai: { ...noAi, loading: true } }));
 expect(html, '探测中', '正在探测本机…');
 expect(html, '探测中', '探测中…');
-html = render('一个来源都没有', [dataState, '', { kind: 'otherAi' }, false, sources, online, draft, noAi, '', {}]);
+html = render('一个来源都没有', args({ ai: noAi }));
 expect(html, '来源空', '一个来源都没有');
-html = render('宿主报错 + 导入提示', [dataState, '', { kind: 'otherAi' }, false, sources, online, draft, { ...aiData, error: '连不上宿主', notice: '已导入「codex-agents」' }, '', {}]);
+html = render('宿主报错 + 导入提示', args({ ai: { ...aiData, error: '连不上宿主', notice: '已导入「codex-agents」' } }));
 expect(html, '宿主报错', '连不上宿主');
 expect(html, '导入提示', '已导入「codex-agents」');
-html = render('加来源报错', [dataState, '', { kind: 'otherAi' }, false, sources, online, draft, { ...aiData, addError: '本机路径不存在：/x/y' }, '', {}]);
+html = render('加来源报错', args({ ai: { ...aiData, addError: '本机路径不存在：/x/y' } }));
 expect(html, '加来源报错', '本机路径不存在：/x/y');
-html = render('导入中（按钮禁用 + 文案）', [dataState, '', { kind: 'otherAi' }, false, sources, online, draft, aiData, 'codex:agents-md:agents', {}]);
+html = render('导入中（按钮禁用 + 文案）', args({ aiBusy: 'codex:agents-md:agents' }));
 expect(html, '导入中', '导入中…');
 expect(html, '导入中', 'disabled');
 
@@ -254,20 +297,59 @@ if (opened.length !== 0) {
 	}
 }
 
-// ── 7. 列表页上那个入口还在（同一次注册的同一个组件）────────────────────
-console.log('— 列表入口 —');
-html = render('列表页入口按钮', [dataState, '', { kind: 'list' }, false, sources, online, draft, aiData, '', {}]);
-expect(html, '列表入口', '从其它 AI 导入');
-expect(html, '列表入口', '在线搜索');
-expect(html, '列表入口', '新建');
+// ── 7. 「智能体」页上那个入口已经**搬走**（反向断言）──────────────────────
+console.log('— 智能体页的入口已搬走 —');
+html = renderAgents('智能体页列表（7 个 state）', agentsArgs());
+expect(html, '智能体页', 'DSH 智能体');
+expect(html, '智能体页', '在线搜索');
+expect(html, '智能体页', '新建');
+// 搬走 = 这一页里再没有那个按钮，也没有别的字符串提示还有入口
+expectNot(html, '智能体页', '从其它 AI 导入');
+// 而且源码里 AgentsPage 那一段也**不该**再有 otherAi 分支/state（不只是渲染出来没有）
+{
+	const source = (await import('node:fs/promises')).readFile;
+	const code = await source(CLIENT_PATH, 'utf8');
+	const page = code.slice(code.indexOf('function AgentsPage()'), code.lastIndexOf('/**', code.indexOf('function OtherAiPage()')));
+	for (const needle of ['otherAi', 'aiBusy', 'aiOpt', 'aiTab', 'conv']) {
+		if (page.includes(needle)) {
+			failures += 1;
+			console.log(`     FAIL 「智能体」页源码里还留着「${needle}」（应该搬走了）`);
+		}
+	}
+	if (page.includes('从其它 AI 导入')) {
+		failures += 1;
+		console.log('     FAIL 「智能体」页源码里还留着「从其它 AI 导入」文案');
+	}
+	if (page.match(/React\.useState\(/gu)?.length !== 7) {
+		failures += 1;
+		console.log(`     FAIL 「智能体」页的 useState 不是 7 个（实际 ${String(page.match(/React\.useState\(/gu)?.length)}）`);
+	}
+}
+// 而新页里确实有
+html = render('新页里确实有「从其它 AI 导入」', args());
+expect(html, '新页', '从其它 AI 导入');
 
-// ── 8. 顺手确认没把既有页面挤掉 ─────────────────────────────────────────
-console.log('— 既有页面没被动 —');
+// ── 8. slot 注册（新页在「智能体」下面）＋ 没把既有页面挤掉 ───────────────
+console.log('— slot 注册 —');
 for (const [id, order] of [['skills', 130], ['mcp', 140], ['agents', 150]]) {
 	const entry = registered.find((e) => e.o.id === id);
 	const ok = entry !== undefined && entry.o.order === order && typeof entry.o.label === 'string';
 	console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${id} order=${entry?.o.order} label=${entry?.o.label}`);
 	if (!ok) failures += 1;
+}
+{
+	const entry = registered.find((e) => e.o.id === 'other-ai');
+	const ok = entry !== undefined && entry.o.name === 'settings.section' && entry.o.order === 160 && entry.o.label === '导入';
+	console.log(`  ${ok ? 'ok  ' : 'FAIL'} other-ai order=${entry?.o.order} label=${entry?.o.label} name=${entry?.o.name}`);
+	if (!ok) failures += 1;
+}
+if (registered.filter((e) => e.o.id === 'other-ai').length !== 1) {
+	failures += 1;
+	console.log('     FAIL 「导入」页注册了不止一次');
+}
+if (registered.filter((e) => e.o.id === 'agents').length !== 1) {
+	failures += 1;
+	console.log('     FAIL 「智能体」页注册了不止一次');
 }
 if (registered.some((e) => e.o.id === 'agent-presets')) {
 	failures += 1;

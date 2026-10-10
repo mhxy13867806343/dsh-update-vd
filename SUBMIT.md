@@ -14,8 +14,8 @@ url: https://github.com/mhxy13867806343/dsh-update-vd
 name: mhxy13867806343/dsh-update-vd
 category: ui
 description:
-  en: 'DSH Desktop control center: one-click app updating (progress dialog, unattended install, resume), plus Skills / MCP / Notes / Agents settings pages — import from Codex, Claude Code, TRAE and WorkBuddy, search remote sources by address, and push notes straight into the composer.'
-  zh: 'DSH Desktop 桌面控制中心：更新中心（侧栏版本号 + 进度条弹窗 + 一键装好 + 断点续传），外加「技能 / MCP / 笔记 / 智能体」四个设置页——可从 Codex、Claude Code、TRAE、WorkBuddy 导入，按源地址联网搜索，侧栏笔记可多选插入聊天输入框。'
+  en: 'DSH Desktop control center: one-click app updating (progress dialog, unattended install, resume), plus Skills / MCP / Agents / Import settings pages — import agent presets and chat history from Codex, Claude Code, TRAE and WorkBuddy, search remote sources by address, and push notes straight into the composer.'
+  zh: 'DSH Desktop 桌面控制中心：更新中心（侧栏版本号 + 进度条弹窗 + 一键装好 + 断点续传），外加「技能 / MCP / 智能体 / 导入」四个设置页——可从 Codex、Claude Code、TRAE、WorkBuddy 导入智能体预设与历史对话，按源地址联网搜索，侧栏笔记可多选插入聊天输入框。'
 ```
 > 英文那行**必须加引号**：描述里有「冒号+空格」，不加引号 YAML 会当成嵌套键解析失败。
 

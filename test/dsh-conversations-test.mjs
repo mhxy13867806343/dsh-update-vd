@@ -2,20 +2,20 @@ import { fileURLToPath } from 'node:url';
 const CLIENT_PATH = fileURLToPath(new URL('../lib/client.js', import.meta.url));
 
 /**
- * 渲染测试：「智能体」页 →「从其它 AI 导入」→**「对话记录」页签**。
+ * 渲染测试：设置里独立的一页「导入」→**「对话记录」页签**。
  *
  * 跟别的渲染测试一个套路：`renderToStaticMarkup` ＋ 受控 `useState` 队列。
- * SSR 不跑 state 变化、也不跑 useEffect，所以这个视图渲染的就是喂进去的那份 state。
+ * SSR 不跑 state 变化、也不跑 useEffect，所以这一页渲染的就是喂进去的那份 state。
  *
- * 队列顺序 = `AgentsPage` 里 `useState` 的调用顺序（**19 个**）：
- *   state, query, mode, busy, sources, online, draft, ai, aiBusy, aiOpt,
- *   aiTab, conv, convQuery, convSource, convRows, convPageSize, convPage, convPicked, convResult
+ * 队列顺序 = `OtherAiPage` 里 `useState` 的调用顺序（**15 个**）：
+ *   presets, busy, ai, aiBusy, aiOpt, aiTab, conv, convQuery, convSource,
+ *   convRows, convPageSize, convPage, convPicked, convResult, convCwd
  * 只喂前面一部分的话，后面那些会退化成默认值 —— 所以「对话」相关的用例必须喂满
- * （第 11 个 `aiTab` 决定渲染哪一个页签：`'agents'` 还是 `'conversations'`）。
+ * （第 6 个 `aiTab` 决定渲染哪一个页签：`'agents'` 还是 `'conversations'`）。
  *
  * 覆盖：两个页签切换、来源清单（装了 / 没装 / 不支持解析）、列表有数据 / 空 / 搜不到、
  * 分页（每页条数 + 页码 + 上一页/下一页）、多选与全选本页 / 全选全部、导入中的按钮文案、
- * 导入结果逐条报错、导出 Markdown / 插入到输入框两条轻量备选、返回按钮。
+ * 导入结果逐条报错、导出 Markdown / 插入到输入框两条轻量备选、以及新页的 slot 注册。
  */
 import { createRequire } from 'node:module';
 const require = createRequire(process.env.DSH_TEST_DEPS ?? '/tmp/dsudep9/package.json');
@@ -28,7 +28,7 @@ let captured = null;
 globalThis.window = { __ModuleLoader__: { load: (d) => (captured = d) }, addEventListener: () => {}, removeEventListener: () => {}, open: (...args) => opened.push(args) };
 globalThis.document = { visibilityState: 'visible', addEventListener: () => {}, removeEventListener: () => {}, createElement: () => ({ style: {}, click: () => {}, remove: () => {} }), body: { appendChild: () => {} }, querySelectorAll: () => [] };
 globalThis.URL = globalThis.URL ?? {};
-// 这个视图的按钮点了会发请求；SSR 里不点，所以这里只提供一个不会炸的壳
+// 这一页的按钮点了会发请求；SSR 里不点，所以这里只提供一个不会炸的壳
 globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) });
 
 await import(CLIENT_PATH);
@@ -55,8 +55,8 @@ mod2.apply({
 	locale: { register: () => () => {}, getSnapshot: () => ({ active: 'zh' }) },
 });
 
-const agents = registered.find((entry) => entry.o.id === 'agents');
-if (agents === undefined) throw new Error('「智能体」页没注册上');
+const otherAi = registered.find((entry) => entry.o.id === 'other-ai');
+if (otherAi === undefined) throw new Error('「导入」页（other-ai）没注册上');
 
 const text = (html) => html.replace(/<style>[\s\S]*?<\/style>/gu, '').replace(/<[^>]+>/gu, ' · ').replace(/(\s*·\s*)+/gu, ' | ').replace(/\s+/gu, ' ').trim();
 
@@ -64,7 +64,7 @@ let failures = 0;
 const render = (label, args) => {
 	queue = args;
 	try {
-		const html = renderToStaticMarkup(React.createElement(agents.C));
+		const html = renderToStaticMarkup(React.createElement(otherAi.C));
 		console.log(`  ok   ${label} → ${text(html).slice(0, 150)}`);
 		return html;
 	} catch (error) {
@@ -88,9 +88,6 @@ const expectNot = (html, label, needle) => {
 
 // ── 喂 state 的素材 ──────────────────────────────────────────────────────
 const emptyState = { loading: false, presets: [], error: null, notice: null, registryError: null, model: null, store: '/Users/x/.dsh/agent-presets.json' };
-const sources = [{ id: 'local-shipped', label: '本机自带预设', kind: 'local', hint: '随包发布的那几个' }];
-const online = { kind: 'agents', sourceId: 'local-shipped', custom: '', query: '', results: [], busy: false, error: null, limit: 24 };
-const draft = { text: '', url: '', path: '', name: '', id: '', asCopy: false, overwrite: false, asPrompt: false, error: null };
 const noAi = { loading: false, toolkits: [], error: null, notice: null, addOpen: false, addAddress: '', addLabel: '', addBusy: false, addError: null };
 
 /** 对话来源清单：codex / claude / workbuddy 装了，trae 支持不了解析。 */
@@ -116,18 +113,16 @@ const convRows = Array.from({ length: 12 }, (_unused, index) => ({
 	cwd: '/Users/x/Desktop/demo',
 }));
 
-/** 19 个 state 的快捷构造（前 10 个是这页早就有的）。 */
+/**
+ * 15 个 state 的快捷构造（顺序＝ `OtherAiPage` 里 `useState` 的顺序）。
+ * 这一套用例默认把 `aiTab` 设成 `'conversations'`。
+ */
 const args = (patch = {}) => [
-	patch.state ?? emptyState,
-	'',
-	{ kind: 'otherAi' },
-	false,
-	sources,
-	online,
-	draft,
+	patch.presets ?? emptyState.presets,
+	patch.busy ?? false,
 	patch.ai ?? noAi,
-	'',
-	{},
+	patch.aiBusy ?? '',
+	patch.aiOpt ?? {},
 	patch.aiTab ?? 'conversations',
 	patch.conv ?? convData,
 	patch.convQuery ?? '',
@@ -137,6 +132,7 @@ const args = (patch = {}) => [
 	patch.convPage ?? 1,
 	patch.convPicked ?? [],
 	patch.convResult ?? null,
+	patch.convCwd ?? '',
 ];
 
 // ── 1. 两个页签 ──────────────────────────────────────────────────────────
@@ -148,11 +144,14 @@ expect(html, '智能体预设页签', '对话记录');
 expect(html, '智能体预设页签', '只读探测本机的其它 AI 工具');
 expectNot(html, '智能体预设页签', '全选本页');
 expectNot(html, '智能体预设页签', '导入成 DSH 会话');
+// 它现在是设置里的独立一页，不再有「返回智能体列表」
+expectNot(html, '智能体预设页签', '返回');
 
 html = render('切到「对话记录」', args());
 expect(html, '对话记录页签', '对话记录');
 expect(html, '对话记录页签', '智能体预设');
 expectNot(html, '对话记录页签', '只读探测本机的其它 AI 工具');
+expectNot(html, '对话记录页签', '返回');
 // 页签按钮带 data-ai-tab，测试与用户都能一眼看出当前在哪个页签
 expect(html, '对话记录页签', 'data-ai-tab="agents"');
 expect(html, '对话记录页签', 'data-ai-tab="conversations"');
@@ -266,8 +265,12 @@ expect(html, '轻量备选', '导入后的会话在左侧会话列表里打开')
 html = render('报错行', args({ conv: { ...convData, error: '没有这个对话来源：typo' } }));
 expect(html, '报错行', '没有这个对话来源：typo');
 
-// ── 7. 入口与 slot 不冲突 ────────────────────────────────────────────────
-console.log('— 入口与 slot —');
+// ── 7. slot 注册（独立一页，排在「智能体」下面）───────────────────────────
+console.log('— slot —');
+if (registered.filter((entry) => entry.o.id === 'other-ai').length !== 1) {
+	failures += 1;
+	console.log('     FAIL 「导入」页注册了不止一次');
+}
 if (registered.filter((entry) => entry.o.id === 'agents').length !== 1) {
 	failures += 1;
 	console.log('     FAIL 「智能体」页注册了不止一次');
@@ -276,6 +279,17 @@ const order = Object.fromEntries(registered.map((entry) => [entry.o.id, entry.o.
 if (order.agents !== 150) {
 	failures += 1;
 	console.log(`     FAIL agents 的 order 不是 150（实际 ${String(order.agents)}）`);
+}
+if (order['other-ai'] !== 160) {
+	failures += 1;
+	console.log(`     FAIL other-ai 的 order 不是 160（实际 ${String(order['other-ai'])}）`);
+}
+{
+	const entry = registered.find((e) => e.o.id === 'other-ai');
+	if (entry?.o.name !== 'settings.section' || entry?.o.label !== '导入') {
+		failures += 1;
+		console.log(`     FAIL other-ai 的 name/label 不对（${String(entry?.o.name)} / ${String(entry?.o.label)}）`);
+	}
 }
 
 console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);

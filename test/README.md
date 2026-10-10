@@ -20,9 +20,9 @@ node test/dsh-insert-test.mjs              # 插入契约（7 项）
 node test/dsh-changelog-test.mjs           # 更新日志弹窗（5 项）
 node test/dsh-agents-test.mjs              # 「智能体」设置页的各种视图（30 项）
 node test/dsh-agents-host-test.mjs         # 「智能体」宿主侧：新路由全打一遍（含真实联网，62 项）
-node test/dsh-other-ai-test.mjs            # 「从其它 AI 导入」独立视图（装了/没装两态、官网跳转、加删来源）
+node test/dsh-other-ai-test.mjs            # 「导入」设置页（`other-ai`，order 160）：装了/没装两态、官网跳转、加删来源、入口已从智能体页搬走
 node test/dsh-other-ai-host-test.mjs       # 同上的宿主侧：真实 HOME 只读探测 + 临时 DSH_HOME 写操作
-node test/dsh-conversations-test.mjs       # 「从其它 AI 导入 → 对话记录」页签（页签/列表/搜索/分页/多选/导入结果）
+node test/dsh-conversations-test.mjs       # 「导入 → 对话记录」页签（页签/列表/搜索/分页/多选/导入结果）
 node test/dsh-conversations-host-test.mjs  # 同上的宿主侧：真实 HOME 只读解析 + 临时 DSH_HOME 写会话
 ```
 
@@ -38,7 +38,10 @@ cd <仓库根> && export DSH_TEST_DEPS=/tmp/dsudep9/package.json && for f in tes
   队列把每种视图的初始 state 喂进去 —— 列表（有数据 / 空 / 搜索无结果 / 注册表读不到）、查看正文、
   编辑器（新建 / 编辑 / 复制内置 / 系统提示词模式）、删除确认、导出（全部 / 单条）、导入（空白 / 报错）、
   在线搜索（有结果 / 搜不到 / 搜索中 / 加地址面板 / 报错）。队列顺序＝组件里 `useState` 的调用顺序：
-  `state, query, mode, busy, sources, online, draft`（7 个）。
+  `state, query, mode, busy, sources, online, draft`（**7 个**）。
+  **v1.9.1 起这页只有这 7 个 state** —— 原来排在这后面的 `ai` / `aiBusy` / `aiOpt` / `aiTab` / `conv*`
+  （共 13 个）已经跟着「从其它 AI 导入」UI 一起搬去独立的一页 `OtherAiPage` 了，`mode.kind === 'otherAi'`
+  这个分支和列表头上那个入口按钮也一并删掉了。
 - `test/dsh-agents-host-test.mjs`：宿主侧。把 `DSH_HOME` 指到 `/tmp/dsh-agents-host-home`（**不碰真身**），
   `import` 宿主半边，用一个**假 ctx** apply：`connection.fetch.register` 收路由、
   `get('agentPresets')` 给一个假注册表、`plugin(模块, config)` 模拟「挂一行声明 = 注册表里多一条」。
@@ -60,8 +63,11 @@ cd <仓库根> && export DSH_TEST_DEPS=/tmp/dsudep9/package.json && for f in tes
 2. **不要动既有路由的语义**：`/agents*` 是新路由；`/sources`、`/sources/add`、`/sources/remove` 只是
    多认了一个 `kind: 'agents'`（由 `sourceKind()` 归一化），`skills` / `mcp` 的行为必须一模一样
    —— `dsh-agents-host-test.mjs` 里有「sources.skills / mcp 行为不变」这条断言。
-3. **不要撞 slot id**：内置预设页的 id 是 `agent-presets`（order 20），本页是 `agents`（order 150）。
-   `dsh-agents-test.mjs` 末尾会断言没撞 id、且 skills/mcp/agents 的 order 分别是 130/140/150。
+3. **不要撞 slot id**：内置预设页的 id 是 `agent-presets`（order 20），本页是 `agents`（order 150），
+   搬出去的「导入」页是 `other-ai`（order 160）。
+   `dsh-agents-test.mjs` 末尾会断言没撞 id、且 skills/mcp/agents 的 order 分别是 130/140/150；
+   `dsh-other-ai-test.mjs` / `dsh-conversations-test.mjs` 末尾会断言 `other-ai` 的 order 是 160、
+   且**「智能体」页里不再有**「从其它 AI 导入」这个入口（渲染结果与源码两处都断言）。
 4. **`agentPresets` 拿不到要给提示而不是崩**：`lib/resources.js` 的 `agentPresetService()` 会抛出
    「还没就绪」，`listAgents()` 把它降级成 `registryError` 并在页面顶部显示 —— 这样服务没就绪时
    至少还能管理本插件自己那几条。别把它改成 `ctx.agentPresets.xxx` 直接访问。
@@ -77,10 +83,13 @@ cd <仓库根> && export DSH_TEST_DEPS=/tmp/dsudep9/package.json && for f in tes
    所以同一仓库换关键字重搜是 0 次请求。删了它，这功能搜两次就会被 GitHub 403。
    注意它是本插件自己的 Map，**不要**去改技能那条路已有的 `TREE_CACHE`。
 
-## 「从其它 AI 导入」（「智能体」页里的独立视图）怎么测
+## 「从其它 AI 导入」（设置里独立的一页 `other-ai`，order 160）怎么测
 
-入口是「智能体」页列表头上那个「从其它 AI 导入」按钮，点开是一个**独立视图**（不是嵌套弹窗），
-交互与「在线搜索」同款（独立视图 + 返回）。默认四个来源：**Codex / Claude Code / TRAE / WorkBuddy**。
+v1.9.1 起它不是「智能体」页里的分支了：`settings.section` 里多注册了一页
+`{ id: 'other-ai', order: 160, label: '导入' }`（排在「智能体」150 **下面**），
+整套 UI 搬进独立组件 `OtherAiPage`；「智能体」页里那个入口按钮与 `mode.kind === 'otherAi'`
+分支、以及 `ai` / `aiBusy` / `aiOpt` / `aiTab` / `conv*` 那 13 个 state 全部删掉。
+默认四个来源：**Codex / Claude Code / TRAE / WorkBuddy**。
 
 - 探测路径（都是 macOS 上实测出来的，**不要凭印象改**）：
   | 来源 | 判据 | 可导入什么 | 官网 |
@@ -94,10 +103,16 @@ cd <仓库根> && export DSH_TEST_DEPS=/tmp/dsudep9/package.json && for f in tes
   自带的重型技能包（`~/.trae/builtin_skills`、`~/.trae/builtin/global/skills`）**故意不列**：太大且依赖它的运行时。
 
 - `test/dsh-other-ai-test.mjs`：纯客户端，跟别的渲染测试一样用 `renderToStaticMarkup` ＋ 受控 `useState` 队列。
-  **队列顺序 = `AgentsPage` 里 `useState` 的调用顺序，一共 9 个**（前 7 个是这页早就有的）：
-  `state, query, mode, busy, sources, online, draft, ai, aiBusy, aiOpt` —— 少喂一个后面就串位。
+  它渲染的是**新页** `OtherAiPage`（`registered.find((e) => e.o.id === 'other-ai')`）。
+  **队列顺序 = `OtherAiPage` 里 `useState` 的调用顺序，一共 15 个**：
+  `presets, busy, ai, aiBusy, aiOpt, aiTab, conv, convQuery, convSource, convRows, convPageSize, convPage, convPicked, convResult, convCwd`
+  —— 少喂一个后面就串位（第 1 个 `presets` 就是用来算「已导入」标记的 `/agents` 清单，
+  第 2 个 `busy` 原来是借「智能体」页的 state，搬出来之后是这一页自己的）。
   覆盖：装了/没装两态、未装的官网链接（`window.open(..., '_blank', 'noopener,noreferrer')`，**不许** `location.href`）、
-  装了能列出可导入项、「已导入」标记、导入重名提示、加/删第三方来源、返回按钮、列表页那个新入口。
+  装了能列出可导入项、「已导入」标记、`presets` 拿不到时不崩、加/删第三方来源、
+  **反向断言**：渲染「智能体」页（7 个 state）结果里不再有「从其它 AI 导入」，
+  且源码里 `AgentsPage` 那一段不再有 `otherAi` / `aiBusy` / `aiOpt` / `aiTab` / `conv` 与那句文案、`useState` 恰好 7 个；
+  以及 slot：`skills/mcp/agents/other-ai` 的 order 分别是 130/140/150/160、`other-ai` 的 `label === '导入'`。
 - `test/dsh-other-ai-host-test.mjs`：宿主侧，**分两个进程**：
   1. **主进程**在**真实 `HOME`** 上只读跑 `detectOtherAiToolkits()`（只有 `existsSync`/`readdir`，一个字节都不写），
      断言写的是**结构**而不是「一定装了谁」：正好 4 个来源、每个都有 `probeNote`/`homepage`/`format`、
@@ -129,12 +144,21 @@ cd <仓库根> && export DSH_TEST_DEPS=/tmp/dsudep9/package.json && for f in tes
    否则用户连点两次就报错太蠢。这条有断言（「同一项再导一次是幂等刷新（不报错）」）。
 8. **导入出来的预设正文必须是一行 `@deepseek-ai/dsh-persona`**（用现成的 `personaPlugins()` 包，
    不要手搓形状），并且带上 `external { via, toolkit, item, path, importedAt, truncated }` 溯源 ——
-   那个视图的「已导入」标记与 `/agents` 列表里的「其它 AI · <来源>」标签都靠它。
+   这一页的「已导入」标记与 `/agents` 列表里的「其它 AI · <来源>」标签都靠它。
+   搬出来之后「已导入」标记改由 `OtherAiPage` 自己拉 `/agents`（`loadPresets`），导入成功后
+   `loadAi()` + `loadPresets()` 各刷一次；**不要再**去读「智能体」页的 `state.presets`（那页已经没有这份 state 了）。
 9. **`importAgent` 的 `record` 入参**：为了让「从其它 AI 导入」复用那条链路上的重名/挂载逻辑，
    `importAgent` 多认了一个 `input.record`（调用方已经把内容读好、算成一条记录了）。
    不传这个键时**行为必须与以前完全一样** —— `dsh-agents-host-test.mjs` 那 62 项就是这条的后盾。
 10. **`sourceKind('other-ai')` 之外的取值仍归 'skills'**：`skills` / `mcp` / `agents` 三个老 kind 的语义
     一个字都不许动（`dsh-agents-host-test.mjs` 里有「sources.skills / mcp 行为不变」这条断言）。
+11. **这一页是独立 slot，不许再挂回「智能体」页**：`ctx.slots.register({ name: 'settings.section',
+    id: 'other-ai', order: 160, label: '导入' }, OtherAiPage)` 是**唯一**入口；`OtherAiPage` 必须是
+    `AgentsPage` 的**同级**函数（同一个 factory 作用域），别嵌进 `AgentsPage` 里面。
+    「智能体」页的列表/搜索/新建/修改/删除/复制一份/导出/导入/在线搜索**一行都不许动**，
+    那 7 个 state 的顺序也不许变（`dsh-agents-test.mjs` 喂的就是这 7 个）。
+12. **布局继续用内联样式兜底**：这一页跟「智能体」页一样，只用 `AGENT_INLINE` 里的内联 style +
+    宿主主题变量（`--dsw-alias-*`），不要指望宿主那份 `<style>` 一定会生效。
 
 ## ⚠️ 必须保留的两处修复（来自 62b1cff）
 
@@ -145,10 +169,11 @@ cd <仓库根> && export DSH_TEST_DEPS=/tmp/dsudep9/package.json && for f in tes
 
 改动 `lib/client.js` 里的笔记段落时，请重跑上面 5 个测试；改了这两处必须先说服自己为什么。
 
-## 「从其它 AI 导入 → 对话记录」（「智能体」页里那个视图的第二个页签）怎么测
+## 「导入 → 对话记录」（独立设置页 `other-ai` 的第二个页签）怎么测
 
-入口：`设置 → 智能体 → 从其它 AI 导入`，页签条上切到**「对话记录」**（默认还是「智能体预设」，
-**老行为一个字没动**）。这一类的目标不是导「智能体」，而是把 Codex / Claude Code / WorkBuddy
+入口：`设置 → 导入`（导航里排在「智能体」下面；v1.9.1 起不再从「智能体」页进），
+页签条上切到**「对话记录」**（默认还是「智能体预设」，**老行为一个字没动**）。
+这一类的目标不是导「智能体」，而是把 Codex / Claude Code / WorkBuddy
 里聊过的**会话**导成**真正的 DSH 会话**（导完在左侧会话列表里打开、能接着聊）。
 
 - 本机探明的对话存放位置（**macOS 上实测出来的，不要凭印象改**）：
@@ -160,15 +185,15 @@ cd <仓库根> && export DSH_TEST_DEPS=/tmp/dsudep9/package.json && for f in tes
   | TRAE | `~/.trae/assistant`、`~/.trae-cn/assistant` **都是空目录** | 对话**不在文件里**（它自己的云端 / 应用内数据库） | **不支持解析**，界面如实写明 |
 
 - `test/dsh-conversations-test.mjs`：纯客户端。渲染套路同上（`renderToStaticMarkup` ＋ 受控
-  `useState` 队列）。**队列顺序 = `AgentsPage` 里 `useState` 的调用顺序，一共 19 个**（前 10 个是
-  这页早就有的，最后 9 个是「对话记录」新增的）：
-  `state, query, mode, busy, sources, online, draft, ai, aiBusy, aiOpt, aiTab, conv, convQuery,
-  convSource, convRows, convPageSize, convPage, convPicked, convResult` —— 少喂一个后面就串位；
-  第 11 个 `aiTab` 决定渲染哪一个页签。覆盖：两个页签切换（含「智能体预设」页签里**不出现**
-  对话 UI 的反向断言）、来源三态（装了 / 没装给官网按钮 / TRAE 明说解析不了）、列表有数据 /
-  空 / 搜不到 / 搜索命中、分页（每页 10 → 2 页、第 2 页只剩 2 条、每页 100 → 1 页）、
-  多选与全选本页、导入中按钮文案、导入结果逐条报错（ok / 跳过 / 失败三种行）、
-  导出 Markdown / 插入到输入框两条轻量备选、报错行、slot 没撞 id。
+  `useState` 队列），渲染的也是**新页** `OtherAiPage`（`registered.find((e) => e.o.id === 'other-ai')`）。
+  **队列顺序 = `OtherAiPage` 里 `useState` 的调用顺序，一共 15 个**：
+  `presets, busy, ai, aiBusy, aiOpt, aiTab, conv, convQuery, convSource, convRows, convPageSize,
+  convPage, convPicked, convResult, convCwd` —— 少喂一个后面就串位；
+  第 6 个 `aiTab` 决定渲染哪一个页签。覆盖：两个页签切换（含「智能体预设」页签里**不出现**
+  对话 UI 的反向断言，以及这一页**不再有**「返回」的反向断言）、来源三态（装了 / 没装给官网按钮 /
+  TRAE 明说解析不了）、列表有数据 / 空 / 搜不到 / 搜索命中、分页（每页 10 → 2 页、第 2 页只剩 2 条、
+  每页 100 → 1 页）、多选与全选本页、导入中按钮文案、导入结果逐条报错（ok / 跳过 / 失败三种行）、
+  导出 Markdown / 插入到输入框两条轻量备选、报错行、slot 没撞 id（`other-ai` order 160、label「导入」）。
 - `test/dsh-conversations-host-test.mjs`：宿主侧，**分两个进程**：
   1. **主进程**在**真实 `HOME`** 上只读跑 `scanConversations()` / `readConversation()`
      （`readdir` / `readFile` / 只读打开 sqlite，一个字节都不写），断言写的是**结构与格式**：
@@ -192,16 +217,18 @@ cd <仓库根> && export DSH_TEST_DEPS=/tmp/dsudep9/package.json && for f in tes
 
 ### ⚠️ 「对话记录」必须保留的约束
 
-1. **纯加法**：`lib/conversations.js` 是**新文件**（宿主半边），`lib/client.js` 只**新增段落**
-   （`aiTab` / `conv*` 那 9 个 state、`loadConv`、`conversationsToMarkdown`、`otherAi` 里的页签条与
-   第二个分支）。**不要**去改 `OnlineSearch` / `SkillsPage` / `McpPage` / 笔记 / 更新那几段，
+1. **纯加法 + 位置迁移**：`lib/conversations.js` 是**新文件**（宿主半边），`lib/client.js` 里这部分
+   （`aiTab` / `conv*` 那批 state、`loadConv`、`conversationsToMarkdown`、页签条与第二个分支）
+   v1.9.1 起跟着「从其它 AI 导入」整套搬进了独立组件 `OtherAiPage`（slot `other-ai`）。
+   **不要**去改 `OnlineSearch` / `SkillsPage` / `McpPage` / 笔记 / 更新那几段，
    也不要动「智能体预设」那条分支的既有行为（默认页签就是 `agents`）。
+   宿主半边（`lib/index.js` / `lib/resources.js` / `lib/conversations.js`）的路由与函数行为**一个字都不许动**。
 2. **既有路由语义不变**：`GET /other-ai` 不带参数时响应里**不能**多出 `conversations` 字段，
    `kind` 省略一律按 `agents` 处理（`dsh-conversations-host-test.mjs` 有这条反向断言）。
    新增的是 `/other-ai/conversations`、`/other-ai/conversations/list|search|read|import` 五条。
 3. **探测/解析一律只读**：别人的配置目录（`~/.codex`、`~/.claude`、`~/.workbuddy`）**一个字节都不许写**，
    sqlite 要 `readOnly: true`；不递归整棵 home（Codex 只挖 4 层，Claude / WorkBuddy 2 层）。
-   列表要带 60 秒缓存（Codex 单文件几十 MB，一次打开视图不能把 home 读穿）。
+   列表要带 60 秒缓存（Codex 单文件几十 MB，一次打开这一页不能把 home 读穿）。
 4. **导入优先走官方 API**：`ctx.sessionPersistence.create(header)` + `handle.append(events)`，
    拿不到服务时才退回「按同一套编码自己写 `session.v4.jsonl.zstd`」（`projectKey` / `encodeSegment` /
    多帧 zstd 每帧一条记录，规则抄自 `@deepseek-ai/dsh-session-persistence-jsonl`）。
