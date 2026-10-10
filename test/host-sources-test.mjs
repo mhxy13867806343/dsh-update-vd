@@ -1,3 +1,13 @@
+// GitHub 未登录配额只有 60 次/小时；配额为 0 时这套测试必然失败，但那是环境问题不是回归。
+// 明确跳过（退出码 0）并在输出里说明，免得把「配额用尽」误读成「代码坏了」。
+{
+	const quota = await fetch('https://api.github.com/rate_limit').then((r) => r.json()).catch(() => null);
+	if (quota !== null && (quota.resources?.core?.remaining ?? 1) === 0) {
+		console.log('  跳过：GitHub 未登录配额已用完（0/60）—— 环境原因，不是回归');
+		process.exit(0);
+	}
+}
+
 import { fileURLToPath } from 'node:url';
 const INDEX_PATH = fileURLToPath(new URL('../lib/index.js', import.meta.url));
 

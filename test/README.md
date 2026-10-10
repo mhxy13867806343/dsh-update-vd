@@ -8,7 +8,10 @@
 # 1) 装一次测试依赖（react/react-dom 已列在 devDependencies；不装进包里）
 cd <仓库根> && npm install
 
-# 2) 在仓库根目录跑（测试默认用仓库自己的依赖；想用别处的就设 DSH_TEST_DEPS）
+# 2) 一键跑全部（推荐）
+node test/run-all.mjs
+
+# 或者单跑某套（测试默认用仓库自己的依赖；想用别处的就设 DSH_TEST_DEPS）
 cd <仓库根>/lib && cp client.js /tmp/c.mjs && node --check /tmp/c.mjs    # 客户端语法
 node --check index.js && node --check resources.js                        # 宿主语法
 cd .. && node test/vd-pages-test.mjs       # 既有功能：更新行/更新弹窗/技能页/MCP 页（18 项）
@@ -249,3 +252,9 @@ v1.9.1 起它不是「智能体」页里的分支了：`settings.section` 里多
 10. **写操作测试必须在子进程里跑**：`lib/conversations.js` 的 `DSH_HOME` / `SESSION_STORE_ROOT`
     是模块加载时常量。测试要用 `DSH_UPDATER_SESSION_ROOT`（临时目录）或子进程 + 临时 `DSH_HOME`
     来指开，跑完必须断言真实 `~/.dsh/sessions` 没被动过。
+
+## 联网测试的配额预检
+
+`host-search-test.mjs` / `host-sources-test.mjs` 会打 GitHub 公开 API（未登录 **60 次/小时**）。
+这两套开头会先查 `rate_limit`：配额为 **0** 就打印「跳过：GitHub 未登录配额已用完」并以退出码 0 结束 ——
+**这不是回归**。别把配额用尽当成代码坏了（曾经误报过两次）。
