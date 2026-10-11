@@ -44,5 +44,24 @@ const codeOnly = client.split('\n').filter((line) => !/^\s*(?:\/\/|\*|\/\*)/u.te
 check('草稿经 getSnapshot() 读取（hooks 是 store）', /function currentDraft[\s\S]{0,400}?getSnapshot\(/u.test(codeOnly));
 check('代码里没有直接读 hooks.input.draft', !/\.input\.draft|input\?\.draft|input\.draft/u.test(codeOnly));
 
+// ⑥ 通用护栏：本项目里「点击处理器」统一写成 `() => void X(...)`。
+//    凡是这种写法里的 X 必须在文件某处有声明（const/let/function/形参/对象键/import）。
+//    精准盯这一类，避免像「全量未定义扫描」那样把 CSS 的 rgba()/calc() 也误报。
+{
+	const declared = new Set();
+	for (const m of client.matchAll(/\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/gu)) declared.add(m[1]);
+	for (const m of client.matchAll(/\bimport\s+(?:\{([^}]*)\}|([A-Za-z_$][\w$]*))/gu)) {
+		if (m[1]) for (const piece of m[1].split(',')) declared.add(piece.trim().split(/\s+as\s+/u).pop().trim());
+		if (m[2]) declared.add(m[2]);
+	}
+	for (const m of client.matchAll(/\bfunction\s*[A-Za-z_$\w]*\s*\(([^)]*)\)/gu)) for (const piece of m[1].split(',')) declared.add(piece.trim().split('=')[0].trim().split(':').pop().trim());
+	for (const m of client.matchAll(/(?:const|let)\s*\[([^\]]*)\]\s*=/gu)) for (const piece of m[1].split(',')) declared.add(piece.trim());
+	for (const m of client.matchAll(/([A-Za-z_$][\w$]*)\s*:/gu)) declared.add(m[1]);   // 对象键（含传进来的 props）
+	const called = new Map();
+	for (const m of client.matchAll(/void\s+([a-z_$][\w$]*)\s*\(/gu)) called.set(m[1], (called.get(m[1]) ?? 0) + 1);
+	const missing = [...called.keys()].filter((name) => !declared.has(name));
+	check('所有 `void X(...)` 处理器都有定义/声明', missing.length === 0, missing.join(', ') || `共 ${called.size} 个处理器全部有定义`);
+}
+
 console.log(fail === 0 ? '\n全部通过' : `\n${fail} 项失败`);
 process.exit(fail === 0 ? 0 : 1);
