@@ -387,24 +387,63 @@ check('年：2 年 → 2 行', yearTwoRows.length === 2, String(yearTwoRows.leng
 check('年：2 年 → 24 个月格，每行 12 格', cellsIn(yearTwo) === 24 && yearTwoRows.every((segment) => cellsIn(segment) === 12), `${cellsIn(yearTwo)} 格 / 每行 ${yearTwoRows.map(cellsIn).join(',')}`);
 check('年：每行左边标出年份（2025年 / 2026年）', yearTwo.includes('data-dta-year="2025"') && yearTwo.includes('data-dta-year="2026"') && textOf(yearTwo).includes('2025年') && textOf(yearTwo).includes('2026年'));
 check('年：只有 1 年时就是 1 行（12 格）', rowSegments(renders.year).length === 1 && cellsIn(renders.year) === 12, `${rowSegments(renders.year).length} 行 / ${cellsIn(renders.year)} 格`);
+/** 刻度条上每条刻度的 `{ text, left }`（`left` 是渲染出来的像素，已含年份栏缩进）。 */
+const axisLabelsOf = (html) =>
+	[...strip(html).matchAll(/data-dta-axis-label="1"[^>]*style="([^"]*)"[^>]*>([^<]*)</gu)].map((match) => ({ left: px(match[1], 'left'), text: match[2] }));
 check('年：12 个月刻度都在（最后一条「12月」不许因为差 1px 被丢掉）', (() => {
-	const labels = [...yearTwo.matchAll(/data-dta-axis-label="1"[^>]*>([^<]*)</gu)].map((match) => match[1]);
-	return labels.length === 12 && labels[0] === '1月' && labels[11] === '12月';
-})(), [...yearTwo.matchAll(/data-dta-axis-label="1"[^>]*>([^<]*)</gu)].map((match) => match[1]).join(' '));
+	const labels = axisLabelsOf(yearTwo);
+	return labels.length === 12 && labels[0].text === '1月' && labels[11].text === '12月';
+})(), axisLabelsOf(yearTwo).map((label) => label.text).join(' '));
+// ★ v1.10.4：刻度必须压在**它自己那一列**上 —— 左边界 == 年份栏 + 列号 × (格子 + 列间距)。
+check('年：12 个月刻度与列对齐（left == 年份栏 + 列号 × (格子 + 间距)，±0.02px）', (() => {
+	const model = __test.buildHeatmap(twoYears, 'year', new Date());
+	const metrics = __test.taGridMetrics('year', 640, model); // 渲染用的兜底宽度 = 640
+	const labels = axisLabelsOf(yearTwo);
+	return (
+		labels.length === 12 &&
+		labels.every((label, column) => Math.abs(label.left - (metrics.indent + column * (metrics.cell + metrics.gap))) <= 0.02) &&
+		labels.every((label, index) => index === 0 || label.left > labels[index - 1].left)
+	);
+})(), `格子 ${__test.taGridMetrics('year', 640, __test.buildHeatmap(twoYears, 'year', new Date())).cell}px`);
+// ★ v1.10.4（用户：「年的没平均分配呀」）：12 个月格**平均铺满可用宽度**（= 容器宽 − 年份栏），
+// 并且仍然「每年一行 × 12 格」。可用宽 = 容器宽 − `TA_YEAR_GUTTER`（年份栏宽度）。
+check('年：12 格平均铺满可用宽度（420 / 620 / 900 宽都 ±2px，右侧不留白）', (() => {
+	const model = __test.buildHeatmap(twoYears, 'year', new Date());
+	for (const width of [420, 620, 900]) {
+		const metrics = __test.taGridMetrics('year', width, model);
+		const used = metrics.indent + model.columns * metrics.cell + (model.columns - 1) * metrics.gap;
+		if (model.columns !== 12 || Math.abs(used - width) > 2) return false;
+	}
+	return true;
+})(), [420, 620, 900].map((width) => {
+	const metrics = __test.taGridMetrics('year', width, __test.buildHeatmap(twoYears, 'year', new Date()));
+	return `${width}px→格子 ${metrics.cell}px / 间距 ${metrics.gap}px`;
+}).join('，'));
+check('年：容器越宽格子越大（铺满 ⇒ 格子随宽度变化，不再是封顶的 22px 死尺寸）', (() => {
+	const model = __test.buildHeatmap(twoYears, 'year', new Date());
+	const narrow = __test.taGridMetrics('year', 420, model);
+	const wide = __test.taGridMetrics('year', 620, model);
+	return narrow.cell < wide.cell && narrow.cell > 22 && wide.cell > 22;
+})(), '420 < 620');
 check('年：多年时行高自适应，仍然塞得进 95px 行区（不出滚动条）', (() => {
 	const many = {};
 	for (let year = 2015; year <= 2026; year += 1) many[`${year}-05-05`] = 1000;
 	const model = __test.buildHeatmap(many, 'year', new Date());
-	const metrics = __test.taGridMetrics('year', 640, model);
-	const height = metrics.rows * metrics.cell + (metrics.rows - 1) * metrics.rowGap;
-	return model.rows === 12 && height <= __test.TA_GRID_ROWS_HEIGHT && metrics.cell > 0;
-})(), '12 年');
-check('年：列宽不够时先缩格子，绝不横向溢出（12 列 + 年份栏 ≤ 容器宽）', (() => {
+	for (const width of [420, 620, 900]) {
+		const metrics = __test.taGridMetrics('year', width, model);
+		const height = metrics.rows * metrics.cell + (metrics.rows - 1) * metrics.rowGap;
+		const used = metrics.indent + model.columns * metrics.cell + (model.columns - 1) * metrics.gap;
+		// 12 年 = 12 行：行区仍 ≤ 95px，横向照样铺满。
+		if (height > __test.TA_GRID_ROWS_HEIGHT || Math.abs(used - width) > 2 || metrics.cell <= 0) return false;
+	}
+	return model.rows === 12 && model.columns === 12;
+})(), '12 年 × 12 格');
+check('年：极窄容器（260 / 320）仍然缩格子铺满、绝不横向溢出（12 列 + 年份栏 ≤ 容器宽）', (() => {
 	const model = __test.buildHeatmap(twoYears, 'year', new Date());
-	for (const width of [260, 320, 420, 520, 640, 900]) {
+	for (const width of [260, 320]) {
 		const metrics = __test.taGridMetrics('year', width, model);
 		const used = metrics.indent + model.columns * metrics.cell + (model.columns - 1) * metrics.gap;
-		if (used > width) return false;
+		if (used > width || Math.abs(used - width) > 2) return false;
 	}
 	return true;
 })());
@@ -462,10 +501,10 @@ check('渲染：月模式刻度不再重叠（每条刻度都带 data-dta-axis-l
 	return labels.length > 0 && labels.every((left, index) => index === 0 || left > labels[index - 1]);
 })(), textOf(renders.day).slice(0, 60));
 
-// ── 4c. ★ v1.10.3「铺满宽度」：三模式渲染宽度 ≈ 容器宽（±2px），右侧不留白 ──────────
+// ── 4c. ★ v1.10.3 / v1.10.4「铺满宽度」：四种模式渲染宽度 ≈ 容器宽（±2px），右侧不留白 ──
 // 用户截图的原话是「平均分呀。不要这样 样式」—— 以前只在有数据的列里画格子，
 // 卡片右边/中间留一大片空白。现在窗口固定、格子由 taFitCells 反算，横向必须恰好铺满。
-console.log('\n— 铺满宽度：天/周/累计的网格宽度 ≈ 容器宽（±2px，右侧不留白） —');
+console.log('\n— 铺满宽度：天/周/年/累计的网格宽度 ≈ 容器宽（±2px，右侧不留白） —');
 /** 从渲染出的 HTML 反算「网格实际占用的横向像素」：左留白 + 列 × 格子 + (列−1) × 列间距。 */
 const gridUsedWidth = (html, columns) => {
 	const style = styleOf(tagOf(html, 'data-dta-row="1"'));
@@ -473,6 +512,24 @@ const gridUsedWidth = (html, columns) => {
 	const pad = px(style, 'padding-left') ?? 0;
 	return pad + columns * cellSide(html) + (columns - 1) * gap;
 };
+/**
+ * 年模式的「网格实际占用宽度」还要加上每行左边那块「2026年」年份栏
+ * （`width` + `margin-right`，渲染出来是 `TA_YEAR_GUTTER`）。
+ * ⚠️ 年份栏是 `<span>`，`tagOf` 只会往回找 `<div`（会量到外层行），所以这里单独取起始标签。
+ */
+const yearTagOf = (html) => {
+	const text = strip(html);
+	const at = text.indexOf('data-dta-year');
+	if (at === -1) return '';
+	const start = text.lastIndexOf('<', at);
+	const end = text.indexOf('>', at);
+	return start === -1 || end === -1 ? '' : text.slice(start, end + 1);
+};
+const yearGutterOf = (html) => {
+	const style = styleOf(yearTagOf(html));
+	return (px(style, 'width') ?? 0) + (px(style, 'margin-right') ?? 0);
+};
+const yearUsedWidth = (html, columns) => gridUsedWidth(html, columns) + yearGutterOf(html);
 const COLUMN_COUNT = { day: __test.TA_DAY_COLUMNS, week: __test.TA_WEEK_COLUMNS, year: 12, total: __test.TA_DAY_COLUMNS };
 for (const mode of ['day', 'week', 'total']) {
 	for (const width of [420, 520, 620, 900]) {
@@ -480,6 +537,12 @@ for (const mode of ['day', 'week', 'total']) {
 		const used = gridUsedWidth(html, COLUMN_COUNT[mode]);
 		check(`${mode}@${width}px：网格宽度 ≈ 容器宽度（右侧不留白）`, Math.abs(used - width) <= 2, `used=${used.toFixed(2)}px / 容器 ${width}px（差 ${(used - width).toFixed(2)}px）`);
 	}
+}
+// ★ v1.10.4：年模式也进这一组 —— 12 个月格 + 年份栏 == 容器宽（±2px），用户要的「平均分配」。
+for (const width of [420, 620, 900]) {
+	const html = renderCard(cardState({ external, mode: 'year', gridWidth: width }), `year@${width}`);
+	const used = yearUsedWidth(html, COLUMN_COUNT.year);
+	check(`year@${width}px：12 个月格 + 年份栏 ≈ 容器宽度（右侧不留白）`, Math.abs(used - width) <= 2, `used=${used.toFixed(2)}px / 容器 ${width}px（差 ${(used - width).toFixed(2)}px）`);
 }
 check('断言口径：可用宽度 = 容器宽（不含滚动条 / 不留白）', (() => {
 	// 620 宽时「天」模式：26 左留白 + 53×8.26 + 52×3 = 619.78 ⇒ 差 0.22px，肉眼就是铺满。
