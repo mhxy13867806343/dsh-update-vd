@@ -13,7 +13,7 @@ node test/run-all.mjs
 
 # 或者单跑某套（测试默认用仓库自己的依赖；想用别处的就设 DSH_TEST_DEPS）
 cd <仓库根>/lib && cp client.js /tmp/c.mjs && node --check /tmp/c.mjs    # 客户端语法
-node --check index.js && node --check resources.js                        # 宿主语法
+node --check index.js && node --check resources.js && node --check usage.js && node --check conversations.js   # 宿主语法
 cd .. && node test/vd-pages-test.mjs       # 既有功能：更新行/更新弹窗/技能页/MCP 页（18 项）
 node test/dsh-notes-test.mjs               # 笔记各种视图（16 项）
 node test/dsh-notes-verify.mjs             # 笔记独立复核（14 项，含下面两条「必须保留」）
@@ -25,9 +25,11 @@ node test/dsh-other-ai-test.mjs            # 「导入」设置页（`other-ai`�
 node test/dsh-other-ai-host-test.mjs       # 同上的宿主侧：真实 HOME 只读探测 + 临时 DSH_HOME 写操作
 node test/dsh-conversations-test.mjs       # 「导入 → 对话记录」页签（页签/列表/搜索/分页/多选/导入结果）
 node test/dsh-conversations-host-test.mjs  # 同上的宿主侧：真实 HOME 只读解析 + 临时 DSH_HOME 写会话
+node test/dsh-token-activity-test.mjs      # 「Token 活动」热力图：四种模式/配色/悬停浮层/空错态/聚合纯函数/锚点
+node test/dsh-token-activity-host-test.mjs # 同上的宿主侧：多帧 zstd 解码 + 按天汇总 + 缓存 + /usage/daily 路由
 ```
 
-一次跑完（14 套 → 现在 16 套）：
+一次跑完（14 套 → 现在 **20 套**）：
 
 ```bash
 cd <仓库根> && export DSH_TEST_DEPS=/tmp/dsudep9/package.json && for f in test/*.mjs; do node "$f" || echo "FAILED $f"; done
@@ -258,3 +260,46 @@ v1.9.1 起它不是「智能体」页里的分支了：`settings.section` 里多
 `host-search-test.mjs` / `host-sources-test.mjs` 会打 GitHub 公开 API（未登录 **60 次/小时**）。
 这两套开头会先查 `rate_limit`：配额为 **0** 就打印「跳过：GitHub 未登录配额已用完」并以退出码 0 结束 ——
 **这不是回归**。别把配额用尽当成代码坏了（曾经误报过两次）。
+
+## 「Token 活动」热力图（`settings.section` 挂载点 + 兜底页 `token-activity`，order 170）怎么测
+
+- `test/dsh-token-activity-test.mjs`：纯客户端。用 `renderToStaticMarkup` + 受控 `useState` 队列
+  摆四种模式、悬停态、空 / 错 / 加载三态；再直接断言纯函数。
+  **卡片组件的 state 顺序（队列必须照这个来，共 13 个）**：
+  `external, mode, hovered, tooltip, tipTitle, tipValue, tipUnit, tipLeft, tipTop, tipBelow, tipVisible, tipKey`。
+  浮层断言要看 `data-dta-tooltip` 那一段（`tooltipHtml()` 就是为它写的）；
+  配色断言直接比**色值**（`taColor(mode, level)` / 渲染出来的 HTML 里有没有那个 hex），不看类名。
+  锚点识别用假 `document` 顶掉 `querySelector`，断言「优先 `/top-up` 链接、退回去类名、都没有则 null」。
+- `test/dsh-token-activity-host-test.mjs`：宿主侧。`DSH_UPDATER_SESSION_ROOT` 指到
+  `/tmp/dsh-token-activity-host-home/sessions`（**不碰真实 `~/.dsh`**），现场用 `zstdCompressSync`
+  造「多帧拼接」会话日志；覆盖容器解码（含**末尾残缺帧**与彻底坏掉的文件）、
+  `inputTokens + outputTokens` 口径、按**本地日期**分桶、跨会话合并、逐文件缓存、
+  以及真路由 `GET /api/dsh-update-vd/usage/daily`（含 `?refresh=1`）。
+
+### ⚠️ 「Token 活动」必须保留的约束
+
+1. **不能复用内置 `account` 节的 id**。「账号与余额」页是 `@deepseek-ai/dsh-client-ui-settings-account`
+   注册的**单页** slot（`settings.section` + id `account` + order -10），slot 规则里复用同一个 id
+   = **把那一格整页替换掉**。这一页也**没有** `settings.account.item` 之类的子插槽
+   （全仓 `grep '"settings.account'` 只有它自己的模块 id）。所以往那一页加东西只有两条路：
+   ① portal 追加到 DOM 节点后面（现在用的，锚点见下）；② 另开一页。**两条都保留着**：
+   兜底页 `token-activity` 只在 portal 没挂上时出现在导航里（`TokenActivityNavGate`），不会两处同时出现。
+2. **portal 的锚点要按优先级找**：先 `a[href$="/top-up"]` 再 `.closest('.swbgcW_balanceCard')`，
+   最后才退回类名 —— 类名是 CSS module 哈希（`swbgcW_` 前缀），宿主改版就变。
+   两条都找不到必须返回 null 并且**把兜底页亮出来**（不许白屏、不许抛）。
+   `MutationObserver` 是必须的：账号页每次重渲染都会把插入的节点冲掉，冲掉后要能自己插回去。
+3. **`react-dom` 只在真要开 portal 时懒加载**（`reactDom()`）。别改成顶部 `require('react-dom')` ——
+   仓库里几个测试的假 `require` 会在遇到没见过的模块 id 时抛错，那是**故意**的护栏，别去拆。
+4. **数据只从会话日志来**：`assistant/message` 的 `data.usage`，口径固定 `inputTokens + outputTokens`
+   （不含 cacheRead/cacheWrite）。别改成打 Platform 接口 —— 「查询用量」是内嵌网页，**没有**按天的 JSON 接口。
+5. **解析坏数据不许崩**：帧边界扫描 + 单帧失败丢弃 + 整个文件解不开就跳过（记进 `stats.skipped`）。
+   日期只认 `^\d{4}-\d{2}-\d{2}$` 且真实存在的日期，`2026-13-99` 必须被忽略
+   （它曾经让 `new Date()` 变 Invalid Date → `new Array(NaN)` → RangeError）。
+6. **逐文件缓存键是 `(mtimeMs, size)`**：文件没变就不许重解析（冷启动 ~0.9 秒 / 3.1 万条用量事件，
+   热读 ~4 毫秒）。改这块要重跑「第二次走缓存」「文件变了只重解析它」两条断言。
+7. **路由是纯新增**：`/api/dsh-update-vd/usage/daily` 不能影响既有任何一条路由；
+   响应固定 `{ ok: true, days, stats, at }`，`days` 按日期**升序**（界面直接当时间序用）。
+8. **四种模式的颜色必须来自 `TA_PALETTE`**（每天=绿 / 每周=黄 / 年=红 / 累计总量=蓝），
+   0 档是主题底色 `var(--dsw-alias-bg-skeleton)`。别改成写死的类名或别的色系 ——
+   「四种模式配色不同且分别是绿/黄/红/蓝」有专门断言。
+
