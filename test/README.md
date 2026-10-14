@@ -25,7 +25,7 @@ node test/dsh-other-ai-test.mjs            # 「导入」设置页（`other-ai`�
 node test/dsh-other-ai-host-test.mjs       # 同上的宿主侧：真实 HOME 只读探测 + 临时 DSH_HOME 写操作
 node test/dsh-conversations-test.mjs       # 「导入 → 对话记录」页签（页签/列表/搜索/分页/多选/导入结果）
 node test/dsh-conversations-host-test.mjs  # 同上的宿主侧：真实 HOME 只读解析 + 临时 DSH_HOME 写会话
-node test/dsh-token-activity-test.mjs      # 「Token 活动」热力图：四种模式/配色/悬停浮层/空错态/聚合纯函数/锚点
+node test/dsh-token-activity-test.mjs      # 「Token 活动」热力图：四种模式/配色/悬停浮层/四种 phase 都不空白/聚合纯函数/锚点/导航门控
 node test/dsh-token-activity-host-test.mjs # 同上的宿主侧：多帧 zstd 解码 + 按天汇总 + 缓存 + /usage/daily 路由
 ```
 
@@ -261,15 +261,17 @@ v1.9.1 起它不是「智能体」页里的分支了：`settings.section` 里多
 这两套开头会先查 `rate_limit`：配额为 **0** 就打印「跳过：GitHub 未登录配额已用完」并以退出码 0 结束 ——
 **这不是回归**。别把配额用尽当成代码坏了（曾经误报过两次）。
 
-## 「Token 活动」热力图（`settings.section` 挂载点 + 兜底页 `token-activity`，order 170）怎么测
+## 「Token 活动」热力图（portal 宿主挂 `shell.overlay` + 兜底页 `token-activity`，order 170）怎么测
 
 - `test/dsh-token-activity-test.mjs`：纯客户端。用 `renderToStaticMarkup` + 受控 `useState` 队列
-  摆四种模式、悬停态、空 / 错 / 加载三态；再直接断言纯函数。
-  **卡片组件的 state 顺序（队列必须照这个来，共 13 个）**：
+  摆四种模式、悬停态、**四种 phase（idle / loading / error / ready）**；再直接断言纯函数。
+  **卡片组件的 state 顺序（队列必须照这个来，共 12 个；`useEffect` 不入队）**：
   `external, mode, hovered, tooltip, tipTitle, tipValue, tipUnit, tipLeft, tipTop, tipBelow, tipVisible, tipKey`。
   浮层断言要看 `data-dta-tooltip` 那一段（`tooltipHtml()` 就是为它写的）；
   配色断言直接比**色值**（`taColor(mode, level)` / 渲染出来的 HTML 里有没有那个 hex），不看类名。
   锚点识别用假 `document` 顶掉 `querySelector`，断言「优先 `/top-up` 链接、退回去类名、都没有则 null」。
+  最后的门控断言用**假的 `slots.register`**（会返回一个真的 disposer，把注册项从表里摘掉）——
+  所以「兜底页整条注销」这条断言是真的在测注册表，不是看组件返回了什么。
 - `test/dsh-token-activity-host-test.mjs`：宿主侧。`DSH_UPDATER_SESSION_ROOT` 指到
   `/tmp/dsh-token-activity-host-home/sessions`（**不碰真实 `~/.dsh`**），现场用 `zstdCompressSync`
   造「多帧拼接」会话日志；覆盖容器解码（含**末尾残缺帧**与彻底坏掉的文件）、
@@ -283,7 +285,7 @@ v1.9.1 起它不是「智能体」页里的分支了：`settings.section` 里多
    = **把那一格整页替换掉**。这一页也**没有** `settings.account.item` 之类的子插槽
    （全仓 `grep '"settings.account'` 只有它自己的模块 id）。所以往那一页加东西只有两条路：
    ① portal 追加到 DOM 节点后面（现在用的，锚点见下）；② 另开一页。**两条都保留着**：
-   兜底页 `token-activity` 只在 portal 没挂上时出现在导航里（`TokenActivityNavGate`），不会两处同时出现。
+   兜底页 `token-activity` 只在 portal 没挂上时**注册**（见第 11 条），不会两处同时出现。
 2. **portal 的锚点要按优先级找**：先 `a[href$="/top-up"]` 再 `.closest('.swbgcW_balanceCard')`，
    最后才退回类名 —— 类名是 CSS module 哈希（`swbgcW_` 前缀），宿主改版就变。
    两条都找不到必须返回 null 并且**把兜底页亮出来**（不许白屏、不许抛）。
@@ -302,4 +304,24 @@ v1.9.1 起它不是「智能体」页里的分支了：`settings.section` 里多
 8. **四种模式的颜色必须来自 `TA_PALETTE`**（每天=绿 / 每周=黄 / 年=红 / 累计总量=蓝），
    0 档是主题底色 `var(--dsw-alias-bg-skeleton)`。别改成写死的类名或别的色系 ——
    「四种模式配色不同且分别是绿/黄/红/蓝」有专门断言。
+9. **`phase` 只有 `idle / loading / error / ready` 四种，卡片对这四种都要有渲染分支**（第 11 条）。
+   认不出来的 `phase` 一律归一化成 `idle`（`taPhaseOf`）；`days` 为空的老状态、`error` 为空的
+   残缺状态，都必须渲染出**非空文本**——「渲染出空白」在测试里直接算失败。
+10. **模块级函数不许直接用 `t`**：组件里的 `t` 是 **props 传进来的**，没有全局 `t`。
+    模块级出错文案走 `taTr()`（按 `ctx.locale` 的活动语言查 `zh` / `en` 字典）。
+    以前在模块级写 `t(...)` 会 ReferenceError，直接把错误态整片变空白。
+    失败原因同时给**人话文案**（`taErrorText`）和**机器可读原因码**（`taErrorCode`：`host-old` 等）。
+
+11. **portal 宿主不能注册进 `settings.section`**（会导致导航多一条空白行）+ **卡片任何 phase 都不能 `return null`**。
+    这两条是 v1.10.1 修的两个真机 bug，任何一个回退，用户就会看到「导航多一条空白」或「点开整页全白」：
+    - `AccountTokenActivityMount` 只做 portal、不渲染任何可见内容，注册进 `settings.section`
+      （那是「一页一个条目」的 slot）就会多出一格**没有 label 的空行**。它必须待在
+      **始终挂载、不进导航**的槽里 —— 现在是 `shell.overlay`（`id: dsh-update-vd-token-activity`）。
+    - 「兜底页」的显隐**只能靠注册 / 注销整条**（`taSectionSync()` 里 `ctx.slots.register` 的 disposer 收放）。
+      导航条目是 **label** 驱动的：让页面组件 `return null` 只会留下「条目在、内容空」的空白行，
+      这正是 v1.10.0 的写法（`TokenActivityNavGate`），已经被删掉。
+      `hosted` 一旦为 true 就**粘住**：用户切去别的设置页会让 portal 节点消失，那不算「没挂上」，
+      不许因此把兜底页又放回导航。
+    - 卡片的 `body()` 四态都要有分支，`footer()` **任何 phase 都渲染**（失败时那里是「重新取一次」）。
+      测试里的 `PHASE_CASES` 逐个 phase 断言「可见文本非空 + `data-dta-state` 命中 + 文案可见」。
 

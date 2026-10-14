@@ -43,9 +43,26 @@ const mod = captured.factory((id) => {
 
 const registered = [];
 const localeStores = {};
+/** 每次 `settings.section` 注册的 disposer（模拟宿主：register 会返回一个注销函数）。 */
+const sectionDisposers = new Map();
+const fakeSlots = {
+	inject: (_key, cb) => cb(),
+	register: (options, Component) => {
+		registered.push({ options, Component });
+		let live = true;
+		const off = () => {
+			if (!live) return;
+			live = false;
+			const at = registered.findIndex((entry) => entry.Component === Component && entry.options === options);
+			if (at !== -1) registered.splice(at, 1);
+		};
+		sectionDisposers.set(options.id, off);
+		return off;
+	},
+};
 mod.apply({
 	effect: (fn) => fn(),
-	slots: { inject: (_key, cb) => cb(), register: (options, Component) => registered.push({ options, Component }) },
+	slots: fakeSlots,
 	locale: {
 		register: (namespace, messages) => {
 			localeStores[namespace] = messages;
@@ -93,7 +110,7 @@ const tooltipHtml = (html) => {
 };
 const textOf = (html) => strip(html).replace(/<[^>]+>/gu, ' · ').replace(/(\s*·\s*)+/gu, ' | ').replace(/\s+/gu, ' ').trim();
 
-/** 卡片组件的 13 个 useState 初值（顺序 = 组件里 useState 的调用顺序）。 */
+/** 卡片组件的 12 个 useState 初值（顺序 = 组件里 useState 的调用顺序；effect 不入队）。 */
 const cardState = ({ external, mode = 'day', hovered = null, tip = null, tipVisible = false }) => [
 	external,
 	mode,
@@ -302,17 +319,125 @@ check('浮层单位随模式变：每周 / 年 / 累计', (() => {
 })());
 check('浮层文案纯函数对 null 格不崩', __test.tokenTooltip(null, 'day').value === '0');
 
-// ── 6. 空 / 错 / 加载三态 ──────────────────────────────────────────────────
-console.log('\n— 空数据 / 取数失败 —');
-const emptyReady = renderCard(cardState({ external: { phase: 'ready', days: {}, error: null, ready: true } }), '空数据');
+// ── 6. 四种 phase 都不许空白（v1.10.0 的白屏回归护栏） ─────────────────────
+console.log('\n— 四种 phase（idle / loading / error / ready）都不能空白 —');
+const emptyReady = renderCard(cardState({ external: { phase: 'ready', days: {}, error: null, errorCode: null, ready: true } }), '空数据');
 check('空数据有明确文案', emptyReady.includes('还没有 Token 活动记录'), textOf(emptyReady));
 check('空数据不显示浮层 / 不显示网格', !strip(emptyReady).includes('data-dta-tooltip') && !strip(emptyReady).includes('data-dta-cell'));
-const emptyError = renderCard(cardState({ external: { phase: 'error', days: {}, error: 'HTTP 500', ready: false } }), '取数失败');
-check('取数失败有明确文案 + 重试按钮', emptyError.includes('用量数据暂时取不到') && emptyError.includes('重新取一次') && emptyError.includes('HTTP 500'), textOf(emptyError));
+const emptyError = renderCard(cardState({ external: { phase: 'error', days: {}, error: '宿主接口返回 HTTP 500', errorCode: 'http', ready: false } }), '取数失败');
+check('取数失败有明确文案 + 重试按钮', emptyError.includes('用量数据暂时取不到') && emptyError.includes('重新取一次') && emptyError.includes('宿主接口返回 HTTP 500'), textOf(emptyError));
 check('取数失败不崩（正常出 HTML）', emptyError.includes('data-dta-card="1"'));
-const emptyLoading = renderCard(cardState({ external: { phase: 'loading', days: {}, error: null, ready: false } }), '加载中');
+const emptyLoading = renderCard(cardState({ external: { phase: 'loading', days: {}, error: null, errorCode: null, ready: false } }), '加载中');
 check('加载中有文案，不会一直空白', emptyLoading.includes('正在统计本机会话日志'), textOf(emptyLoading));
 check('已经加载过一次时再刷新不回到「加载中」', __test.tokenActivityStore.get().phase !== undefined);
+
+/**
+ * 「卡片任何 phase 都不许空白」—— 逐个 phase 摆一遍，断言：
+ *   ① 渲染出的**可见文本**非空（去掉标签之后还有字）；
+ *   ② 有 `data-dta-state` 之一（说明真的走了某个分支，不是掉进 return null）；
+ *   ③ error 态能看到**原因**（比如「宿主还是旧版本」）。
+ * 这一条是 v1.10.0「点开 Token 活动整页全白」的直接回归护栏。
+ */
+const PHASE_CASES = [
+	{ phase: 'idle', days: {}, error: null, errorCode: null, ready: false, state: 'idle', expect: '还没开始取用量数据' },
+	{ phase: 'loading', days: {}, error: null, errorCode: null, ready: false, state: 'loading', expect: '正在统计本机会话日志' },
+	{ phase: 'error', days: {}, error: '宿主还是旧版本（重启一次 DSH Desktop 就好）', errorCode: 'host-old', ready: false, state: 'error', expect: '宿主还是旧版本' },
+	{ phase: 'ready', days: {}, error: null, errorCode: null, ready: true, state: 'empty', expect: '还没有 Token 活动记录' },
+];
+for (const item of PHASE_CASES) {
+	const html = renderCard(cardState({ external: { phase: item.phase, days: item.days, error: item.error, errorCode: item.errorCode, ready: item.ready } }), `phase=${item.phase}`);
+	const text = textOf(html);
+	const visible = text.replace(/[|·\s]/gu, '');
+	check(`phase=${item.phase}：卡片不是空白`, html.includes('data-dta-card="1"') && visible.length > 0, `${visible.length} 个可见字符`);
+	check(`phase=${item.phase}：走了 ${item.state} 分支（不是 return null）`, html.includes(`data-dta-state="${item.state}"`), (html.match(/data-dta-state="[a-z]+"/u) ?? ['<none>'])[0]);
+	check(`phase=${item.phase}：能看到文案「${item.expect}」`, text.includes(item.expect), text.slice(0, 80));
+}
+check('认不出来的 phase 也当 idle 渲染（不许空白）', (() => {
+	const html = renderCard(cardState({ external: { phase: '胡说', days: {}, error: null, ready: false } }), 'phase=未知');
+	return html.includes('data-dta-state="idle"') && textOf(html).replace(/[|·\s]/gu, '').length > 0;
+})());
+check('没有 days 字段也不许空白（老 store 的残缺状态）', (() => {
+	const html = renderCard(cardState({ external: { phase: 'idle' } }), 'phase=idle 残缺');
+	return html.includes('data-dta-card="1"') && textOf(html).replace(/[|·\s]/gu, '').length > 0;
+})());
+check('error 态一定显示原因（error 为空也要有兜底文案）', (() => {
+	const html = renderCard(cardState({ external: { phase: 'error', days: {}, error: null, errorCode: null, ready: false } }), 'phase=error 无原因');
+	return html.includes('data-dta-state="error"') && textOf(html).includes('取数过程中出了点别的问题');
+})());
+check('「宿主还是旧版本」失败会多给一句「重启一次 DSH Desktop」', (() => {
+	const html = renderCard(cardState({ external: { phase: 'error', days: {}, error: '宿主还是旧版本（重启一次 DSH Desktop 就好）', errorCode: 'host-old', ready: false } }), 'phase=error 旧宿主');
+	return html.includes('data-dta-error-code="host-old"') && textOf(html).includes('重启一次 DSH Desktop');
+})());
+check('一次失败不会把文案重复两遍（body 说事、页脚说怎么办）', (() => {
+	const html = renderCard(cardState({ external: { phase: 'error', days: {}, error: '宿主接口返回 HTTP 500', errorCode: 'http', ready: false } }), 'phase=error 不重复');
+	const text = textOf(html);
+	const hint = '点「重新取一次」再试；一直失败就看下面的原因。';
+	return text.split(hint).length - 1 === 1 && text.split('用量数据暂时取不到').length - 1 === 1;
+})(), '');
+check('error 但已经有旧数据时仍出网格（不把老数据藏起来）', (() => {
+	const html = renderCard(cardState({ external: { phase: 'error', days: { '2026-10-01': 1234 }, error: '宿主接口返回 HTTP 500', errorCode: 'http', ready: false } }), 'phase=error 有旧数据');
+	const cells = (html.match(/data-dta-cell="1"/gu) ?? []).length;
+	return cells > 0 && html.includes('data-dta-footer="1"') && textOf(html).includes('用量数据暂时取不到') && html.includes('data-dta-retry="1"');
+})(), '');
+check('ready 且有数据时不出空态（走网格 + 合计）', (() => {
+	const html = renderCard(cardState({ external: { phase: 'ready', days: { '2026-10-01': 1234 }, error: null, errorCode: null, ready: true } }), 'ready 有数据');
+	return !html.includes('data-dta-state=') && html.includes('data-dta-cell="1"');
+})());
+check('任何 phase 都有页脚（页脚里至少有 retry 或合计）', PHASE_CASES.every((item) => {
+	const html = renderCard(cardState({ external: { phase: item.phase, days: item.days, error: item.error, errorCode: item.errorCode, ready: item.ready } }), '页脚');
+	return html.includes('data-dta-footer="1"');
+}));
+
+// 失败路径的人话文案（纯函数）：404 → 「宿主还是旧版本」。
+console.log('\n— 失败原因归一化（taErrorText / taErrorCode） —');
+check('HTTP 404（新路由还不存在）→ 「宿主还是旧版本」', (() => {
+	const text = __test.taErrorText(new Error('HTTP 404'));
+	return text.includes('宿主还是旧版本') && __test.taPhaseOf('error') === 'error';
+})(), __test.taErrorText(new Error('HTTP 404')));
+check('带 status 的 404 也认', __test.taErrorText('whatever', 404).includes('宿主还是旧版本'));
+check('别的 HTTP 带状态码', __test.taErrorText(new Error('HTTP 500')) === '宿主接口返回 HTTP 500', __test.taErrorText(new Error('HTTP 500')));
+check('连不上宿主进程（fetch 抛错）有原始信息', __test.taErrorText(new Error('Failed to fetch')).includes('连不上宿主进程'));
+check('原因码：404=host-old / 500=http / 网络=network', (() => {
+	return (
+		__test.taErrorCode(new Error('HTTP 404')) === 'host-old' &&
+		__test.taErrorCode('boom', 404) === 'host-old' &&
+		__test.taErrorCode(new Error('HTTP 500')) === 'http' &&
+		__test.taErrorCode(new Error('Failed to fetch')) === 'network'
+	);
+})(), `${__test.taErrorCode(new Error('HTTP 404'))}/${__test.taErrorCode(new Error('HTTP 500'))}/${__test.taErrorCode(new Error('Failed to fetch'))}`);
+check('phase 枚举就是四种', JSON.stringify(__test.TA_PHASES) === JSON.stringify(['idle', 'loading', 'error', 'ready']), __test.TA_PHASES.join('/'));
+check('phase 归一化：认不出来 → idle', __test.taPhaseOf('ready') === 'ready' && __test.taPhaseOf('nope') === 'idle' && __test.taPhaseOf(undefined) === 'idle');
+
+/**
+ * 真请求路径（不是摆状态）：把 `fetch` 换成「旧宿主」——
+ * `/api/dsh-update-vd/usage/daily` 还不存在、返回 404 —— 断言 store **一定**落到
+ * `phase:'error'` 且带「宿主还是旧版本」文案（v1.10.0 就是这条路径没落地才一片空白）。
+ * 再把网络错误（fetch 直接抛）也走一遍。
+ */
+console.log('\n— 真请求路径：旧宿主 404 / 网络错误 —');
+const realFetch = globalThis.fetch;
+globalThis.fetch = async () => ({ ok: false, status: 404, json: async () => ({ ok: false }) });
+await __test.tokenActivityStore.load(true);
+const afterOldHost = __test.tokenActivityStore.get();
+check('404 ⇒ phase=error（不是停在 idle / loading）', afterOldHost.phase === 'error', String(afterOldHost.phase));
+check('404 ⇒ error 文案是「宿主还是旧版本」+ 原因码 host-old', String(afterOldHost.error).includes('宿主还是旧版本') && afterOldHost.errorCode === 'host-old', `${afterOldHost.errorCode} / ${afterOldHost.error}`);
+globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: false, error: '会话日志读不到' }) });
+await __test.tokenActivityStore.load(true);
+const afterHostError = __test.tokenActivityStore.get();
+check('接口 ok:false ⇒ phase=error 且把宿主给的 error 带出来', afterHostError.phase === 'error' && String(afterHostError.error).includes('会话日志读不到'), `${afterHostError.errorCode} / ${afterHostError.error}`);
+globalThis.fetch = async () => {
+	throw new TypeError('Failed to fetch');
+};
+await __test.tokenActivityStore.load(true);
+const afterNetwork = __test.tokenActivityStore.get();
+check('fetch 抛错 ⇒ phase=error 且是「连不上宿主进程」', afterNetwork.phase === 'error' && String(afterNetwork.error).includes('连不上宿主进程') && afterNetwork.errorCode === 'network', `${afterNetwork.errorCode} / ${afterNetwork.error}`);
+globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, days: { '2026-10-01': 1234 } }) });
+await __test.tokenActivityStore.load(true);
+const afterOk = __test.tokenActivityStore.get();
+check('成功 ⇒ phase=ready 且 days 落地', afterOk.phase === 'ready' && afterOk.days['2026-10-01'] === 1234 && afterOk.error === null, JSON.stringify(afterOk.days));
+// 还原（后面没有别的请求了，但别给别的断言留坑）。
+globalThis.fetch = realFetch;
+__test.tokenActivityStore.set({ phase: 'idle', days: {}, error: null, errorCode: null, ready: false });
 
 // ── 7. 账号页锚点识别（宿主改版时最容易坏的一处） ──────────────────────────
 console.log('\n— 账号页「充值余额」卡片定位 —');
@@ -349,14 +474,20 @@ const card = { tag: 'balanceCard' };
 	check('两条锚点都没有 → null（兜底页会顶上，不会白屏）', found === null, JSON.stringify(dom.calls));
 }
 
-// ── 8. 设置页注册（id / order 不撞车） ─────────────────────────────────────
-console.log('\n— 设置页注册 —');
+// ── 8. 设置页注册（id / order 不撞车）+ 导航里不许留空白行 ────────────────
+console.log('\n— 设置页注册 / 导航门控 —');
 const sections = registered.filter((entry) => entry.options.name === 'settings.section');
 const ids = sections.map((entry) => entry.options.id);
 check('注册了 token-activity 这一页', ids.includes('token-activity'), ids.join(' / '));
 const activity = sections.find((entry) => entry.options.id === 'token-activity');
 check('token-activity：order 170、中文 label', activity.options.order === 170 && activity.options.label === 'Token 活动', `order=${activity.options.order} label=${activity.options.label}`);
-check('挂载点 token-activity-mount 是独立 id', ids.includes('token-activity-mount') && ids.filter((id) => id === 'token-activity-mount').length === 1);
+// ① v1.10.0 的 bug：portal 宿主注册进 `settings.section`（没有 label）→ 导航多一条空白行。
+check('**portal 宿主不再注册为 settings.section**（否则导航里多一条空白行）', !ids.includes('token-activity-mount'), ids.join(' / '));
+check('portal 宿主改挂到 shell.overlay（始终挂载、不进导航）', (() => {
+	const overlay = registered.filter((entry) => entry.options.name === 'shell.overlay');
+	return overlay.some((entry) => entry.Component === __test.AccountTokenActivityMount);
+})(), registered.filter((entry) => entry.options.name === 'shell.overlay').map((entry) => entry.options.id).join(' / '));
+check('settings.section 里每一个注册项都有 label（没有 label 就是空白行）', sections.every((entry) => typeof entry.options.label === 'string' && entry.options.label !== ''), sections.map((entry) => `${entry.options.id}=${entry.options.label ?? '<无>'}`).join(' / '));
 check('**没有**复用内置的 account id（复用 = 整页被替换）', !ids.includes('account'), ids.join(' / '));
 check('没有重复 id', new Set(ids).size === ids.length, ids.join(' / '));
 check('既有四页 id / order 没被动过', (() => {
@@ -364,21 +495,58 @@ check('既有四页 id / order 没被动过', (() => {
 	return Object.entries(want).every(([id, order]) => sections.some((entry) => entry.options.id === id && entry.options.order === order));
 })());
 check('order 里没有 170 撞车（除本页）', sections.filter((entry) => entry.options.order === 170).length === 1);
-check('注册了两个组件（挂载点 + 兜底页）', sections.filter((entry) => entry.options.id === 'token-activity' || entry.options.id === 'token-activity-mount').length === 2);
 
-// 兜底页：账号页没挂上时渲染出卡片本体；挂上了就返回 null
+// 兜底页：账号页没挂上时渲染出卡片本体（**不再是「内容返回 null」那种假隐藏**）
 const pageProps = { t: (key) => key };
 queue = [];
 const pageHtml = renderToStaticMarkup(React.createElement(activity.Component, pageProps));
-check('兜底页能渲染出卡片（账号页没挂上时用）', pageHtml.includes('data-dta-card="1"') || pageHtml === '', `${pageHtml.length} 字节`);
-const gateRegistered = sections.find((entry) => entry.options.id === 'token-activity');
-queue = [true];
-const gated = renderToStaticMarkup(React.createElement(gateRegistered.Component, pageProps));
-check('账号页已经挂上时，兜底页渲染为空（不会两处同时出现）', gated === '', JSON.stringify(gated));
-const mount = sections.find((entry) => entry.options.id === 'token-activity-mount');
+check('兜底页能渲染出卡片（账号页没挂上时用）', pageHtml.includes('data-dta-card="1"'), `${pageHtml.length} 字节`);
+check('兜底页的组件自己不判空（判空 = 导航留一条空白行）', (() => {
+	const source = __test.TokenActivityPage.toString();
+	return !/return\s+null/u.test(source);
+})());
+
+/**
+ * ② 门控：账号页 portal 挂上过 ⇒ 兜底页整条**注销**（不是让内容返回 null）。
+ * 这一条替代了原来的 `TokenActivityNavGate` 断言 —— 旧的写法只会留一行空白。
+ */
+console.log('\n— 兜底页门控（portal 挂上了就整条注销） —');
+const fallbackEntries = () => registered.filter((entry) => entry.options.name === 'settings.section' && entry.options.id === 'token-activity');
+// apply 时 portal 还没挂上 ⇒ 兜底页应该在注册表里（功能永远可达）。
+check('账号页还没挂上时：兜底页在 settings.section 里', fallbackEntries().length === 1 && __test.taSectionRegistered() === true, String(fallbackEntries().length));
+__test.tokenActivityHostSet(true);
+check('portal 挂上 ⇒ 兜底页整条注销（导航里不再有 token-activity）', __test.taSectionRegistered() === false && fallbackEntries().length === 0, String(fallbackEntries().length));
+__test.tokenActivityHostSet(false);
+check('portal 挂上过就粘住：之后探测失败也不许把兜底页放回导航', __test.taSectionRegistered() === false && fallbackEntries().length === 0, String(fallbackEntries().length));
+__test.taSectionResetState(false);
+__test.taSectionSync();
+check('复位后再同步 → 兜底页回来（兜底能力真的还在）', __test.taSectionRegistered() === true && fallbackEntries().length === 1, String(fallbackEntries().length));
+check('门控幂等：连调两次不会注册两份', (() => {
+	__test.taSectionSync();
+	__test.taSectionSync();
+	return fallbackEntries().length === 1;
+})(), String(fallbackEntries().length));
+check('声明重放（关掉设置面板再打开）也不会注册第二份', (() => {
+	const before = fallbackEntries().length;
+	__test.taSectionSync();
+	__test.taSectionSync();
+	return before === 1 && fallbackEntries().length === 1;
+})(), String(fallbackEntries().length));
+check('已 hosted 时再同步不会把兜底页放回来', (() => {
+	__test.tokenActivityHostSet(true);
+	__test.taSectionSync();
+	__test.taSectionSync();
+	const hidden = fallbackEntries().length === 0 && __test.taSectionRegistered() === false;
+	__test.taSectionResetState(false);
+	__test.taSectionSync();
+	return hidden && fallbackEntries().length === 1;
+})(), String(fallbackEntries().length));
+
+// 挂载组件本身在没有 DOM 锚点时不许崩（也不能顺带注册出导航条目）
 queue = [];
-const mountHtml = renderToStaticMarkup(React.createElement(mount.Component, pageProps));
+const mountHtml = renderToStaticMarkup(React.createElement(__test.AccountTokenActivityMount, pageProps));
 check('挂载组件在没有 DOM 锚点时渲染为空（不崩）', mountHtml === '', JSON.stringify(mountHtml));
+check('挂载组件自己不是 settings.section 条目', !registered.some((entry) => entry.options.name === 'settings.section' && entry.Component === __test.AccountTokenActivityMount));
 
 console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}`);
 process.exit(failures === 0 ? 0 : 1);
