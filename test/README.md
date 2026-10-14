@@ -25,7 +25,7 @@ node test/dsh-other-ai-test.mjs            # 「导入」设置页（`other-ai`�
 node test/dsh-other-ai-host-test.mjs       # 同上的宿主侧：真实 HOME 只读探测 + 临时 DSH_HOME 写操作
 node test/dsh-conversations-test.mjs       # 「导入 → 对话记录」页签（页签/列表/搜索/分页/多选/导入结果）
 node test/dsh-conversations-host-test.mjs  # 同上的宿主侧：真实 HOME 只读解析 + 临时 DSH_HOME 写会话
-node test/dsh-token-activity-test.mjs      # 「Token 活动」热力图：四种模式/配色/悬停浮层/四种 phase 都不空白/聚合纯函数/锚点/导航门控
+node test/dsh-token-activity-test.mjs      # 「Token 活动」热力图：四种模式/配色/悬停浮层/布局高度一致/年=每年一行×12/周=2 行/四种 phase 都不空白/聚合纯函数/锚点/导航门控
 node test/dsh-token-activity-host-test.mjs # 同上的宿主侧：多帧 zstd 解码 + 按天汇总 + 缓存 + /usage/daily 路由
 ```
 
@@ -265,10 +265,13 @@ v1.9.1 起它不是「智能体」页里的分支了：`settings.section` 里多
 
 - `test/dsh-token-activity-test.mjs`：纯客户端。用 `renderToStaticMarkup` + 受控 `useState` 队列
   摆四种模式、悬停态、**四种 phase（idle / loading / error / ready）**；再直接断言纯函数。
-  **卡片组件的 state 顺序（队列必须照这个来，共 12 个；`useEffect` 不入队）**：
-  `external, mode, hovered, tooltip, tipTitle, tipValue, tipUnit, tipLeft, tipTop, tipBelow, tipVisible, tipKey`。
+  **卡片组件的 state 顺序（队列必须照这个来，共 13 个；`useEffect` / `useRef` / `useCallback` 不入队）**：
+  `external, mode, hovered, tooltip, tipTitle, tipValue, tipUnit, tipLeft, tipTop, tipBelow, tipVisible, tipKey, gridWidth`。
+  新增的 state **必须加在最后**（`gridWidth` 就是 v1.10.2 加在末尾的容器实测宽度），加在中间会让队列整体错位。
   浮层断言要看 `data-dta-tooltip` 那一段（`tooltipHtml()` 就是为它写的）；
   配色断言直接比**色值**（`taColor(mode, level)` / 渲染出来的 HTML 里有没有那个 hex），不看类名。
+  **布局断言看 HTML 里的内联样式**（`tagOf()` / `styleOf()` / `px()` / `rowSegments()` 几个小工具）——
+  `data-dta-grid="1"` 上的 `height`、`data-dta-row="1"` 的行数、`data-dta-cell="1"` 的边长与格数。
   锚点识别用假 `document` 顶掉 `querySelector`，断言「优先 `/top-up` 链接、退回去类名、都没有则 null」。
   最后的门控断言用**假的 `slots.register`**（会返回一个真的 disposer，把注册项从表里摘掉）——
   所以「兜底页整条注销」这条断言是真的在测注册表，不是看组件返回了什么。
@@ -324,4 +327,35 @@ v1.9.1 起它不是「智能体」页里的分支了：`settings.section` 里多
       不许因此把兜底页又放回导航。
     - 卡片的 `body()` 四态都要有分支，`footer()` **任何 phase 都渲染**（失败时那里是「重新取一次」）。
       测试里的 `PHASE_CASES` 逐个 phase 断言「可见文本非空 + `data-dta-state` 命中 + 文案可见」。
+
+12. **四种模式的网格高度必须完全一致**（v1.10.2 修的真机 bug：切到「每周」卡片会矮一截、「年」只有一个格子）。
+    高度不靠内容撑，而是**一个常量**：
+    - `TA_DAY_CELL 11` / `TA_GRID_INDENT 26` / `TA_DAY_ROWS 7` ⇒ 行区 `TA_GRID_ROWS_HEIGHT = 7×11 + 6×3 = 95px`；
+      再加刻度条 `TA_AXIS_STRIP = 14 + 4 = 18px` ⇒ **`TA_GRID_BOX_HEIGHT = 113px`**。
+    - 网格容器写死 `height: 113px`（`data-dta-grid-height` 同步这个数），**刻度条没刻度也占 18px**。
+      四种模式的差别只在容器内部：每天 / 累计 = 7 行；每周 = 2 行、格子边长与每天一致、垂直居中；
+      年 = 每年一行 × 12 个月格、多年时行高自适应。内层 `justify-content: center` 做垂直居中。
+    - **不许出现滚动条**：容器 `overflow: hidden`，同时列宽由 `taFitCells()` 反算（放不下先压间距、再缩格子）
+      —— 断言里既检查「样式里没有 `overflow: auto/scroll`」，也检查 53 列 / 12 年时横向纵向都塞得下。
+
+13. **年模式 = 每年一行 × 12 个月格**（`buildHeatmap(...,'year')` ⇒ `rows = 年份数`、`columns = 12`、
+    一格一个自然月、`years` 按升序给渲染用）。别再改回「一年一格」——用户只有一年时那会退化成「整张图一个红格子」。
+    月份刻度（1月…12月）也由这个分支给出。
+
+14. **月份刻度：列跨距不足就「不硬标」**。`taAxis(labels, { cell, gap, columns })` 会丢掉
+    放不下的、会压到前一条的、会超出网格右边界的刻度；刻度用**绝对定位** `left = column × (cell + gap)`
+    （不是按跨度 flex 铺 —— 第一条刻度不在第 0 列时那种写法会整体错位）。
+    真机上出现过 `9月 28日 . 9月 28日 _ 10月 4日` 那种叠字，别再改回去。
+
+15. **悬停浮层必须 `position: fixed` + 视口坐标，且挂在网格容器外面**（v1.10.2 真机上浮层被祖先裁掉过）。
+    坐标取**被悬停那一格**的 `getBoundingClientRect()`（行是垂直居中的，用「行号 × 行高」在周 / 年模式下会算歪）；
+    上面放不下（`top < 64`）翻到格子下面；`left` 夹在视口内；`pointer-events: none`；
+    网格容器有 `overflow: hidden`，浮层是它的**兄弟节点**（测试用「数 div 平衡」断言这一点）。
+    文案保持第一行日期、第二行「`239.7万` ↑ Token」。
+
+16. **不许用首帧 `getBoundingClientRect()` 决定尺寸**。容器宽度只走 `ResizeObserver`（`measure` 回调 ref），
+    量不到时用 `TA_DEFAULT_WIDTH = 640`（`compact` 卡片 520）——
+    首帧是 0，拿 0 去算会算出塌陷的小网格（v1.10.2 之前就是这个 bug），断言里专门测了 `width = 0 / NaN` 时与 640 等价。
+    外层还要 `width:100%` + `minWidth:0` + `boxSizing:border-box`，否则会被宿主容器收缩成内容宽。
+    关键布局**全部内联样式**（本宿主出现过 `<style>` 块不生效），只用 `--dsw-alias-*` / `--dsw-radius-*` 主题变量。
 

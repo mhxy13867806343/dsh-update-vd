@@ -110,8 +110,11 @@ const tooltipHtml = (html) => {
 };
 const textOf = (html) => strip(html).replace(/<[^>]+>/gu, ' · ').replace(/(\s*·\s*)+/gu, ' | ').replace(/\s+/gu, ' ').trim();
 
-/** 卡片组件的 12 个 useState 初值（顺序 = 组件里 useState 的调用顺序；effect 不入队）。 */
-const cardState = ({ external, mode = 'day', hovered = null, tip = null, tipVisible = false }) => [
+/**
+ * 卡片组件的 useState 初值 —— 顺序 = 组件里 `useState` 的调用顺序（effect / useRef / useCallback 不入队）。
+ * 共 13 个：`gridWidth` 是**新增的最后一个**（量到的容器宽度；0 = 还没量到 → 组件用兜底宽度）。
+ */
+const cardState = ({ external, mode = 'day', hovered = null, tip = null, tipVisible = false, gridWidth = 0 }) => [
 	external,
 	mode,
 	hovered,
@@ -124,6 +127,7 @@ const cardState = ({ external, mode = 'day', hovered = null, tip = null, tipVisi
 	false,
 	tipVisible,
 	tip === null ? null : tip.key,
+	gridWidth,
 ];
 
 const renderCard = (state, label) => {
@@ -205,13 +209,30 @@ check('每周：一格一周，行数 2', weekly.rows === 2 && weekly.cells.leng
 check('每周：合计守恒', sumOf(weekly) === Object.values(FIXTURE).reduce((a, b) => a + b, 0), String(sumOf(weekly)));
 
 const yearly = __test.buildHeatmap(FIXTURE, 'year', NOW);
-check('年：按自然年求和', (() => {
-	const cells = yearly.cells.flat().filter(Boolean);
-	const y2026 = cells.find((cell) => cell.label === '2026年');
-	const y2027 = cells.find((cell) => cell.label === '2027年');
-	return cells.length === 2 && y2026.value === 2397000 + 300 + 1167124 + 500 + 100 + 200 + 500 + 700 && y2027.value === 200;
+// 年模式 = **每年一行 × 12 个月格**（一格一个月，列固定 12）—— 以前是「一年一格」，
+// 用户只有一年时整张图就只有一个红格子，看不出月份分布。
+check('年：每年一行 × 12 个月格（列固定 12）', yearly.rows === 2 && yearly.columns === 12 && yearly.cells.length === 2 && yearly.cells.every((line) => line.length === 12), `${yearly.rows} 行 × ${yearly.columns} 列`);
+check('年：按自然年 + 自然月求和', (() => {
+	const byLabel = new Map(yearly.cells.flat().filter(Boolean).map((cell) => [cell.label, cell.value]));
+	return (
+		byLabel.get('2026年1月') === 0 &&
+		byLabel.get('2026年9月') === 100 + 200 &&
+		byLabel.get('2026年10月') === 2397000 + 300 + 1167124 + 500 + 500 &&
+		byLabel.get('2026年12月') === 700 &&
+		byLabel.get('2027年1月') === 200
+	);
 })(), JSON.stringify(yearly.cells.flat().filter(Boolean).map((cell) => [cell.label, cell.value])));
-check('年：一年一格，合计守恒', sumOf(yearly) === sumOf(daily), `${sumOf(yearly)} / ${sumOf(daily)}`);
+check('年：没有记录的月份是 0（不是缺失），12 个月一个不少', yearly.cells.every((line) => line.filter((cell) => cell !== null).length === 12));
+check('年：每行合计 = 那一年的合计', (() => {
+	const rowSum = (line) => line.reduce((sum, cell) => sum + (cell === null ? 0 : cell.value), 0);
+	return rowSum(yearly.cells[0]) === 3566424 && rowSum(yearly.cells[1]) === 200;
+})(), JSON.stringify(yearly.cells.map((line) => line.reduce((sum, cell) => sum + (cell === null ? 0 : cell.value), 0))));
+check('年：一格一个月，带年月标签；不给 range（浮层标题保持「2026年10月」这种短标题）', (() => {
+	const cell = yearly.cells.flat().find((value) => value !== null && value.label === '2026年10月');
+	return cell !== undefined && cell.date === '2026-10-01' && cell.key === '2026-10-01' && cell.range === undefined && __test.tokenTooltip(cell, 'year').title === '2026年10月';
+})());
+check('年：年份列表按升序（渲染时每行左边标年份）', JSON.stringify(yearly.years) === JSON.stringify([2026, 2027]), JSON.stringify(yearly.years));
+check('年：合计守恒', sumOf(yearly) === sumOf(daily), `${sumOf(yearly)} / ${sumOf(daily)}`);
 
 const total = __test.buildHeatmap(FIXTURE, 'total', NOW);
 check('累计总量：逐日累加（缺记录的日子接着累加）', (() => {
@@ -277,8 +298,8 @@ const cellCount = (html) => (html.match(/data-dta-cell="1"/gu) ?? []).length;
 for (const mode of __test.TA_MODES) {
 	const html = renderCard(cardState({ external, mode }), mode);
 	renders[mode] = html;
-	// 年模式一年才一格：断言「渲染出了格子」，数量按模式给下限。
-	check(`${mode} 能渲染出网格`, html.includes('data-dta-card="1"') && cellCount(html) >= (mode === 'year' ? 1 : 3), `${cellCount(html)} 格`);
+	// 年模式现在是一年一行 × 12 个月格：至少 12 格（只有一年时就是 12 格）。
+	check(`${mode} 能渲染出网格`, html.includes('data-dta-card="1"') && cellCount(html) >= (mode === 'year' ? 12 : 3), `${cellCount(html)} 格`);
 	check(`${mode} 高亮当前模式按钮`, html.includes(`data-dta-mode="${mode}" data-active="1"`) || html.includes(`data-active="1" data-dta-mode="${mode}"`));
 	check(`${mode} 四种模式按钮都在`, __test.TA_MODES.every((id) => html.includes(`data-dta-mode="${id}"`)));
 }
@@ -294,10 +315,139 @@ check('合计与说明用中文单位', (() => {
 	return renders.day.includes(expected) && renders.day.includes('有记录 3 天');
 })(), textOf(renders.day).slice(-90));
 
+// ── 4b. 布局（真机截图指出的四个问题：高度不一致 / 年只有一个格 / 周挤在左上角 / 浮层被裁） ──
+console.log('\n— 布局：四种模式高度一致 / 年=每年一行×12 / 周=2 行且边长一致 / 浮层 fixed —');
+/** 取某个 `data-*` 标记所在元素的起始标签（`<div data-x="1" ... style="...">`）。 */
+const tagOf = (html, marker) => {
+	const text = strip(html);
+	const at = text.indexOf(marker);
+	if (at === -1) return '';
+	const start = text.lastIndexOf('<div', at);
+	const end = text.indexOf('>', at);
+	return start === -1 || end === -1 ? '' : text.slice(start, end + 1);
+};
+const styleOf = (tag) => {
+	const match = /style="([^"]*)"/u.exec(tag);
+	return match === null ? '' : match[1];
+};
+/** 内联样式里的 px 值（`height:113px` → 113）；没有就是 null。 */
+const px = (style, name) => {
+	const match = new RegExp(`(?:^|;)\\s*${name}:\\s*(-?[0-9.]+)px`, 'u').exec(style);
+	return match === null ? null : Number(match[1]);
+};
+/** 按 `data-dta-row` 把 HTML 切成一行一段（最后一段到结尾）。 */
+const rowSegments = (html) => {
+	const text = strip(html);
+	const marks = [...text.matchAll(/data-dta-row="1"/gu)].map((match) => match.index);
+	return marks.map((start, index) => text.slice(start, index + 1 < marks.length ? marks[index + 1] : text.length));
+};
+const cellsIn = (segment) => (segment.match(/data-dta-cell="1"/gu) ?? []).length;
+const cellSide = (html) => px(styleOf(tagOf(html, 'data-dta-cell="1"')), 'width');
+const gridTag = (html) => tagOf(html, 'data-dta-grid="1"');
+
+// ① 四种模式的网格容器高度 = **同一个常量**（= 每天的高度），且宣称的高度属性一致。
+const gridHeights = {};
+for (const mode of __test.TA_MODES) {
+	const tag = gridTag(renders[mode]);
+	const style = styleOf(tag);
+	gridHeights[mode] = px(style, 'height');
+	check(`${mode}：网格容器高度 = ${__test.TA_GRID_BOX_HEIGHT}px（常量）`, gridHeights[mode] === __test.TA_GRID_BOX_HEIGHT, `height=${gridHeights[mode]}px / data-dta-grid-height=${/data-dta-grid-height="(\d+)"/u.exec(tag)?.[1]}`);
+	check(`${mode}：高度属性与内联 height 一致（切模式不跳）`, /data-dta-grid-height="(\d+)"/u.exec(tag)?.[1] === String(__test.TA_GRID_BOX_HEIGHT));
+	check(`${mode}：外层 width:100% + minWidth:0 + boxSizing:border-box（不被宿主收缩成内容宽）`, /width:100%/u.test(style) && /min-width:0/u.test(style) && /box-sizing:border-box/u.test(style), style.slice(0, 96));
+	check(`${mode}：网格容器**没有滚动条**（不许 overflow auto/scroll）`, /overflow:hidden/u.test(style) && !/overflow(-[xy])?\s*:\s*(auto|scroll)/u.test(style), style);
+}
+check('四种模式的网格高度**完全相等**，且都等于「每天」的高度', new Set(Object.values(gridHeights)).size === 1 && gridHeights.day === __test.TA_GRID_BOX_HEIGHT, JSON.stringify(gridHeights));
+check('每天 / 累计总量：7 行（保持现状）', rowSegments(renders.day).length === 7 && rowSegments(renders.total).length === 7, `${rowSegments(renders.day).length}/${rowSegments(renders.total).length}`);
+
+// ② 年模式：每年一行 × 12 个月格（2 年假数据 → 24 格 + 2 行）。
+const twoYears = { '2025-03-01': 1000, '2025-08-01': 2000, '2026-07-01': 3000 };
+const yearTwo = renderCard(cardState({ external: { phase: 'ready', days: twoYears, error: null, ready: true }, mode: 'year' }), '年（2 年）');
+const yearTwoRows = rowSegments(yearTwo);
+check('年：2 年 → 2 行', yearTwoRows.length === 2, String(yearTwoRows.length));
+check('年：2 年 → 24 个月格，每行 12 格', cellsIn(yearTwo) === 24 && yearTwoRows.every((segment) => cellsIn(segment) === 12), `${cellsIn(yearTwo)} 格 / 每行 ${yearTwoRows.map(cellsIn).join(',')}`);
+check('年：每行左边标出年份（2025年 / 2026年）', yearTwo.includes('data-dta-year="2025"') && yearTwo.includes('data-dta-year="2026"') && textOf(yearTwo).includes('2025年') && textOf(yearTwo).includes('2026年'));
+check('年：只有 1 年时就是 1 行（12 格）', rowSegments(renders.year).length === 1 && cellsIn(renders.year) === 12, `${rowSegments(renders.year).length} 行 / ${cellsIn(renders.year)} 格`);
+check('年：多年时行高自适应，仍然塞得进 95px 行区（不出滚动条）', (() => {
+	const many = {};
+	for (let year = 2015; year <= 2026; year += 1) many[`${year}-05-05`] = 1000;
+	const model = __test.buildHeatmap(many, 'year', new Date());
+	const metrics = __test.taGridMetrics('year', 640, model);
+	const height = metrics.rows * metrics.cell + (metrics.rows - 1) * metrics.rowGap;
+	return model.rows === 12 && height <= __test.TA_GRID_ROWS_HEIGHT && metrics.cell > 0;
+})(), '12 年');
+check('年：列宽不够时先缩格子，绝不横向溢出（12 列 + 年份栏 ≤ 容器宽）', (() => {
+	const model = __test.buildHeatmap(twoYears, 'year', new Date());
+	for (const width of [260, 320, 420, 520, 640, 900]) {
+		const metrics = __test.taGridMetrics('year', width, model);
+		const used = metrics.indent + model.columns * metrics.cell + (model.columns - 1) * metrics.gap;
+		if (used > width) return false;
+	}
+	return true;
+})());
+
+// ③ 周模式：2 行 + 格子边长与每天一致（正方形、不拉伸变形）。
+check('周：2 行格（一格一周）', rowSegments(renders.week).length === 2, String(rowSegments(renders.week).length));
+check('周：格子边长与「每天」完全一致', cellSide(renders.week) === cellSide(renders.day) && cellSide(renders.day) === __test.TA_DAY_CELL, `周=${cellSide(renders.week)}px 每天=${cellSide(renders.day)}px`);
+check('周：格子是正方形（宽 = 高，不拉伸变形）', (() => {
+	const style = styleOf(tagOf(renders.week, 'data-dta-cell="1"'));
+	return px(style, 'width') === px(style, 'height') && px(style, 'width') > 0;
+})());
+check('周：度量层面也用「每天」的格子常量（taGridMetrics）', (() => {
+	const dayModel = __test.buildHeatmap(days, 'day', new Date());
+	const weekModel = __test.buildHeatmap(days, 'week', new Date());
+	const dayMetrics = __test.taGridMetrics('day', 640, dayModel);
+	const weekMetrics = __test.taGridMetrics('week', 640, weekModel);
+	return dayMetrics.cell === __test.TA_DAY_CELL && weekMetrics.cell === dayMetrics.cell && weekMetrics.rows === 2 && dayMetrics.rows === 7;
+})(), '640px');
+check('每天：一整年 53 列时缩格子而不是出滚动条（横向仍然铺满）', (() => {
+	for (const width of [320, 420, 520, 640, 900]) {
+		const metrics = __test.taGridMetrics('day', width, { rows: 7, columns: 53 });
+		const used = metrics.indent + 53 * metrics.cell + 52 * metrics.gap;
+		if (used > width || metrics.cell < 3) return false;
+	}
+	return true;
+})(), '53 列');
+check('首帧没量到宽度时用兜底宽度（不许拿 0 去算尺寸）', (() => {
+	const model = __test.buildHeatmap(days, 'day', new Date());
+	const zero = __test.taGridMetrics('day', 0, model);
+	const fallback = __test.taGridMetrics('day', 640, model);
+	const nan = __test.taGridMetrics('day', Number.NaN, model);
+	return zero.cell === fallback.cell && nan.cell === fallback.cell && zero.cell > 0;
+})());
+
+// ⑤ 月份刻度：跨距不足就**不硬标**（真机上出现过叠字）。
+const AXIS_LABELS = [{ column: 0, text: '9月' }, { column: 1, text: '10月' }, { column: 2, text: '11月' }];
+const axisTight = __test.taAxis(AXIS_LABELS, { cell: 4, gap: 1, columns: 3 });
+const axisRoomy = __test.taAxis(AXIS_LABELS, { cell: 30, gap: 4, columns: 3 });
+check('刻度：列跨距不够就一条都不标（宁缺勿重叠）', axisTight.length === 0 && axisRoomy.length === 3, `紧=${axisTight.length} 条 / 宽=${axisRoomy.length} 条`);
+check('刻度：绝对定位的 left 与列号对齐（不会整体错位）', (() => {
+	const out = __test.taAxis([{ column: 2, text: '10月' }], { cell: 11, gap: 3, columns: 6 });
+	return out.length === 1 && out[0].left === 2 * (11 + 3) && out[0].width > 0;
+})());
+const axisSparse = __test.taAxis([{ column: 0, text: '5月' }, { column: 1, text: '6月' }, { column: 2, text: '7月' }, { column: 6, text: '11月' }], { cell: 11, gap: 3, columns: 12 });
+check('刻度：两两不重叠（后一条的 left ≥ 前一条右边界）', axisSparse.length >= 2 && axisSparse.every((item, index) => index === 0 || item.left >= axisSparse[index - 1].left + axisSparse[index - 1].width), axisSparse.map((item) => `${item.text}@${item.left}+${item.width}`).join(' '));
+check('刻度：超出网格右边界的不标（标了会被裁）', __test.taAxis([{ column: 11, text: '12月' }], { cell: 4, gap: 1, columns: 12 }).length === 0);
+check('渲染：月模式刻度不再重叠（每条刻度都带 data-dta-axis-label 且 left 递增）', (() => {
+	const labels = [...renders.day.matchAll(/data-dta-axis-label="1"[^>]*style="([^"]*)"/gu)].map((match) => px(match[1], 'left'));
+	return labels.length > 0 && labels.every((left, index) => index === 0 || left > labels[index - 1]);
+})(), textOf(renders.day).slice(0, 60));
+
 // ── 5. 悬停浮层 ────────────────────────────────────────────────────────────
 console.log('\n— 悬停浮层 —');
 const hovered = renderCard(cardState({ external, mode: 'day', hovered: '2026-10-01', tip: { title: '4月1日', value: '239.7万', unit: '每天 Token', key: '2026-10-01' }, tipVisible: true }), '悬停');
-check('浮层是绝对定位 + pointer-events:none', /data-dta-tooltip="1"/u.test(hovered) && hovered.includes('position:absolute') && hovered.includes('pointer-events:none'));
+const hoverTipTag = tagOf(hovered, 'data-dta-tooltip="1"');
+const hoverTipStyle = styleOf(hoverTipTag);
+check('浮层是 position:fixed + pointer-events:none（不受祖先 overflow / 滚动容器裁切）', /data-dta-tooltip="1"/u.test(hovered) && /position:fixed/u.test(hoverTipStyle) && /pointer-events:none/u.test(hoverTipStyle), hoverTipStyle.slice(0, 96));
+check('浮层用**视口坐标**（left / top 是 px 数字，不是相对网格的偏移）', Number.isFinite(px(hoverTipStyle, 'left')) && Number.isFinite(px(hoverTipStyle, 'top')), `left=${px(hoverTipStyle, 'left')} top=${px(hoverTipStyle, 'top')}`);
+check('浮层挂在网格容器**外面**（网格的 overflow:hidden 更裁不到它）', (() => {
+	const text = strip(hovered);
+	const at = text.indexOf('data-dta-grid="1"');
+	const marker = text.indexOf('data-dta-tooltip="1"');
+	if (at === -1 || marker === -1) return false;
+	// 从网格容器的起始标签一直数到**浮层自己的起始标签之前**：平衡为 0 = 网格已经闭合 ⇒ 浮层是兄弟节点。
+	const slice = text.slice(text.lastIndexOf('<div', at), text.lastIndexOf('<div', marker));
+	return (slice.match(/<div\b/gu) ?? []).length - (slice.match(/<\/div>/gu) ?? []).length === 0;
+})());
 check('浮层第一行是日期 `4月1日`', tooltipHtml(hovered).includes('data-dta-tip-title="1"') && tooltipHtml(hovered).includes('4月1日'), tooltipHtml(hovered).slice(0, 200));
 check('浮层第二行是 `239.7万`（中文单位）', tooltipHtml(hovered).includes('data-dta-tip-value="1"') && tooltipHtml(hovered).includes('239.7万'));
 check('浮层带向上的箭头（svg path）', tooltipHtml(hovered).includes('<svg') && tooltipHtml(hovered).includes('data-dta-tip-unit="1"'));
