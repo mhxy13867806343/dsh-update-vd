@@ -367,6 +367,10 @@ check('年：2 年 → 2 行', yearTwoRows.length === 2, String(yearTwoRows.leng
 check('年：2 年 → 24 个月格，每行 12 格', cellsIn(yearTwo) === 24 && yearTwoRows.every((segment) => cellsIn(segment) === 12), `${cellsIn(yearTwo)} 格 / 每行 ${yearTwoRows.map(cellsIn).join(',')}`);
 check('年：每行左边标出年份（2025年 / 2026年）', yearTwo.includes('data-dta-year="2025"') && yearTwo.includes('data-dta-year="2026"') && textOf(yearTwo).includes('2025年') && textOf(yearTwo).includes('2026年'));
 check('年：只有 1 年时就是 1 行（12 格）', rowSegments(renders.year).length === 1 && cellsIn(renders.year) === 12, `${rowSegments(renders.year).length} 行 / ${cellsIn(renders.year)} 格`);
+check('年：12 个月刻度都在（最后一条「12月」不许因为差 1px 被丢掉）', (() => {
+	const labels = [...yearTwo.matchAll(/data-dta-axis-label="1"[^>]*>([^<]*)</gu)].map((match) => match[1]);
+	return labels.length === 12 && labels[0] === '1月' && labels[11] === '12月';
+})(), [...yearTwo.matchAll(/data-dta-axis-label="1"[^>]*>([^<]*)</gu)].map((match) => match[1]).join(' '));
 check('年：多年时行高自适应，仍然塞得进 95px 行区（不出滚动条）', (() => {
 	const many = {};
 	for (let year = 2015; year <= 2026; year += 1) many[`${year}-05-05`] = 1000;
