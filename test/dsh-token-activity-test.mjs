@@ -176,8 +176,21 @@ check('空数据不崩：days=0 / 只有一个空占位格', (() => {
 check('非法日期 / 非数值一律忽略', __test.buildHeatmap({ 'x': 5, '2026-13-99': 5, '2026-10-01': 'abc', '2026-10-02': -3 }, 'day', NOW).days === 0);
 
 const daily = __test.buildHeatmap(FIXTURE, 'day', NOW);
-check('每天：7 行 × 自然周列', daily.rows === 7 && daily.columns >= 3, `rows=${daily.rows} columns=${daily.columns}`);
+// ★ v1.10.3「铺满宽度」：固定窗口 = 最近 53 周（371 天，含本周）⇒ **恒为 7 行 × 53 列**，
+// 不随数据多少变（以前只有「有数据的那些周」才有列，右边留一大片空白 —— 用户截图点名的就是这个）。
+check('每天：7 行 × 53 列（固定窗口 = 最近 53 周，列数恒定）', daily.rows === 7 && daily.columns === __test.TA_DAY_COLUMNS && daily.columns === 53, `rows=${daily.rows} columns=${daily.columns}`);
+check('每天：一共 371 格、一个 null 都没有（缺数据的日子是 0 档占位格）', (() => {
+	const flat = daily.cells.flat();
+	return flat.length === 371 && flat.every((cell) => cell !== null) && flat.filter((cell) => cell.level === 0).length === 371 - daily.days;
+})(), `${daily.cells.flat().length} 格 / ${daily.cells.flat().filter((cell) => cell.level === 0).length} 个 0 档`);
 check('每天：一格一天，原值', daily.days === 9 && daily.total === sumOf(daily), `days=${daily.days} total=${daily.total}`);
+// 断言 ①：**只有 3 周数据**时也必须恒为 53 列（其余 368 格是 0 档占位）。
+const THREE_DAYS = { '2026-10-01': 10, '2026-10-02': 20, '2026-10-03': 30 };
+const dailySmall = __test.buildHeatmap(THREE_DAYS, 'day', NOW);
+check('每天：只有 3 天数据时**仍然是 53 列 × 7 行**（其余 368 格是 0 档占位）', (() => {
+	const flat = dailySmall.cells.flat();
+	return dailySmall.columns === 53 && dailySmall.rows === 7 && flat.length === 371 && flat.filter((cell) => cell.level === 0).length === 368;
+})(), `columns=${dailySmall.columns} rows=${dailySmall.rows} 格子=${dailySmall.cells.flat().length} 0档=${dailySmall.cells.flat().filter((cell) => cell.level === 0).length}`);
 check('每天：周一在 row 0、周日 row 6', (() => {
 	const monday = daily.cells[0].find((cell) => cell !== null && cell.date === '2026-09-28');
 	const sunday = daily.cells[6].find((cell) => cell !== null && cell.date === '2026-10-04');
@@ -206,6 +219,10 @@ check('每周：一格带一周的日期范围（浮层标题用）', (() => {
 	return cell.range !== undefined && /月\d+日 – \d+月\d+日/u.test(cell.range);
 })());
 check('每周：一格一周，行数 2', weekly.rows === 2 && weekly.cells.length === 2);
+// 断言 ②：固定窗口 = 最近 26 周 ⇒ 恒为 **2 行 × 13 列**（没有记录的周也占位，不是 null）。
+check('每周：固定 2 行 × 13 列 = 26 格（最近 26 周，一个 null 都没有）', weekly.columns === __test.TA_WEEK_COLUMNS && weekly.columns === 13 && weekly.cells.flat().length === 26 && weekly.cells.flat().every((cell) => cell !== null), `rows=${weekly.rows} columns=${weekly.columns} 格子=${weekly.cells.flat().length}`);
+const weeklySmall = __test.buildHeatmap({ '2026-10-01': 10 }, 'week', NOW);
+check('每周：只有 1 周数据时**仍然是 13 列 / 26 格**（其余 25 格是 0 档）', weeklySmall.columns === 13 && weeklySmall.rows === 2 && weeklySmall.cells.flat().length === 26 && weeklySmall.cells.flat().filter((cell) => cell.level === 0).length === 25, `columns=${weeklySmall.columns} 0档=${weeklySmall.cells.flat().filter((cell) => cell.level === 0).length}`);
 check('每周：合计守恒', sumOf(weekly) === Object.values(FIXTURE).reduce((a, b) => a + b, 0), String(sumOf(weekly)));
 
 const yearly = __test.buildHeatmap(FIXTURE, 'year', NOW);
@@ -314,6 +331,9 @@ check('合计与说明用中文单位', (() => {
 	const expected = __test.taFormat(Object.values(days).reduce((a, b) => a + b, 0));
 	return renders.day.includes(expected) && renders.day.includes('有记录 3 天');
 })(), textOf(renders.day).slice(-90));
+// v1.10.3「铺满宽度」：格子数 = 固定窗口的格子数（天/累计 53×7、周 13×2、年 1 年×12 月）。
+check('渲染：格子数与固定窗口一致（每天/累计 371 格、每周 26 格、年 12 格）', cellCount(renders.day) === 371 && cellCount(renders.total) === 371 && cellCount(renders.week) === 26 && cellCount(renders.year) === 12, `天=${cellCount(renders.day)} 累计=${cellCount(renders.total)} 周=${cellCount(renders.week)} 年=${cellCount(renders.year)}`);
+check('渲染：0 档占位格是**真的格子元素**（同一个 TokenCell ⇒ 能悬停、能高亮），灰底不是透明', renders.day.includes('data-dta-level="0"') && renders.day.includes('background-color:var(--dsw-alias-bg-skeleton)'), (renders.day.match(/data-dta-level="0"/gu) ?? []).length + ' 个 0 档格');
 
 // ── 4b. 布局（真机截图指出的四个问题：高度不一致 / 年只有一个格 / 周挤在左上角 / 浮层被裁） ──
 console.log('\n— 布局：四种模式高度一致 / 年=每年一行×12 / 周=2 行且边长一致 / 浮层 fixed —');
@@ -389,20 +409,26 @@ check('年：列宽不够时先缩格子，绝不横向溢出（12 列 + 年份�
 	return true;
 })());
 
-// ③ 周模式：2 行 + 格子边长与每天一致（正方形、不拉伸变形）。
+// ③ 周模式：固定 2 行 × 13 列，格子**铺满宽度**（正方形，不拉伸变形）。
 check('周：2 行格（一格一周）', rowSegments(renders.week).length === 2, String(rowSegments(renders.week).length));
-check('周：格子边长与「每天」完全一致', cellSide(renders.week) === cellSide(renders.day) && cellSide(renders.day) === __test.TA_DAY_CELL, `周=${cellSide(renders.week)}px 每天=${cellSide(renders.day)}px`);
+check('周：13 列 × 2 行 = 26 格（固定窗口 = 最近 26 周）', cellsIn(renders.week) === 26 && rowSegments(renders.week).every((segment) => cellsIn(segment) === 13), `${cellsIn(renders.week)} 格 / 每行 ${rowSegments(renders.week).map(cellsIn).join(',')}`);
 check('周：格子是正方形（宽 = 高，不拉伸变形）', (() => {
 	const style = styleOf(tagOf(renders.week, 'data-dta-cell="1"'));
 	return px(style, 'width') === px(style, 'height') && px(style, 'width') > 0;
 })());
-check('周：度量层面也用「每天」的格子常量（taGridMetrics）', (() => {
-	const dayModel = __test.buildHeatmap(days, 'day', new Date());
+// v1.10.3：周不再用 11px 的死尺寸缩在左上角 —— 按可用宽度反算（620 宽时 ≈ 45px），横向铺满。
+const week620 = renderCard(cardState({ external, mode: 'week', gridWidth: 620 }), '周@620');
+check('周：格子边长按可用宽度反算（620 宽时 ≈ 45px，不再缩在左上角）', cellSide(week620) > 40 && cellSide(week620) < 50, `${cellSide(week620)}px`);
+check('周：度量层面同样铺满（13 列 + 间距 == 容器宽，2 行塞进 95px 行区）', (() => {
 	const weekModel = __test.buildHeatmap(days, 'week', new Date());
-	const dayMetrics = __test.taGridMetrics('day', 640, dayModel);
-	const weekMetrics = __test.taGridMetrics('week', 640, weekModel);
-	return dayMetrics.cell === __test.TA_DAY_CELL && weekMetrics.cell === dayMetrics.cell && weekMetrics.rows === 2 && dayMetrics.rows === 7;
-})(), '640px');
+	for (const width of [420, 520, 620, 900]) {
+		const metrics = __test.taGridMetrics('week', width, weekModel);
+		const used = metrics.indent + weekModel.columns * metrics.cell + (weekModel.columns - 1) * metrics.gap;
+		const block = weekModel.rows * metrics.cell + (weekModel.rows - 1) * metrics.rowGap;
+		if (Math.abs(used - width) > 2 || block > __test.TA_GRID_ROWS_HEIGHT) return false;
+	}
+	return weekModel.columns === 13 && weekModel.rows === 2;
+})(), '420/520/620/900');
 check('每天：一整年 53 列时缩格子而不是出滚动条（横向仍然铺满）', (() => {
 	for (const width of [320, 420, 520, 640, 900]) {
 		const metrics = __test.taGridMetrics('day', width, { rows: 7, columns: 53 });
@@ -435,6 +461,75 @@ check('渲染：月模式刻度不再重叠（每条刻度都带 data-dta-axis-l
 	const labels = [...renders.day.matchAll(/data-dta-axis-label="1"[^>]*style="([^"]*)"/gu)].map((match) => px(match[1], 'left'));
 	return labels.length > 0 && labels.every((left, index) => index === 0 || left > labels[index - 1]);
 })(), textOf(renders.day).slice(0, 60));
+
+// ── 4c. ★ v1.10.3「铺满宽度」：三模式渲染宽度 ≈ 容器宽（±2px），右侧不留白 ──────────
+// 用户截图的原话是「平均分呀。不要这样 样式」—— 以前只在有数据的列里画格子，
+// 卡片右边/中间留一大片空白。现在窗口固定、格子由 taFitCells 反算，横向必须恰好铺满。
+console.log('\n— 铺满宽度：天/周/累计的网格宽度 ≈ 容器宽（±2px，右侧不留白） —');
+/** 从渲染出的 HTML 反算「网格实际占用的横向像素」：左留白 + 列 × 格子 + (列−1) × 列间距。 */
+const gridUsedWidth = (html, columns) => {
+	const style = styleOf(tagOf(html, 'data-dta-row="1"'));
+	const gap = px(style, 'gap') ?? 0;
+	const pad = px(style, 'padding-left') ?? 0;
+	return pad + columns * cellSide(html) + (columns - 1) * gap;
+};
+const COLUMN_COUNT = { day: __test.TA_DAY_COLUMNS, week: __test.TA_WEEK_COLUMNS, year: 12, total: __test.TA_DAY_COLUMNS };
+for (const mode of ['day', 'week', 'total']) {
+	for (const width of [420, 520, 620, 900]) {
+		const html = renderCard(cardState({ external, mode, gridWidth: width }), `${mode}@${width}`);
+		const used = gridUsedWidth(html, COLUMN_COUNT[mode]);
+		check(`${mode}@${width}px：网格宽度 ≈ 容器宽度（右侧不留白）`, Math.abs(used - width) <= 2, `used=${used.toFixed(2)}px / 容器 ${width}px（差 ${(used - width).toFixed(2)}px）`);
+	}
+}
+check('断言口径：可用宽度 = 容器宽（不含滚动条 / 不留白）', (() => {
+	// 620 宽时「天」模式：26 左留白 + 53×8.26 + 52×3 = 619.78 ⇒ 差 0.22px，肉眼就是铺满。
+	const model = __test.buildHeatmap(days, 'day', new Date());
+	const metrics = __test.taGridMetrics('day', 620, model);
+	const used = metrics.indent + model.columns * metrics.cell + (model.columns - 1) * metrics.gap;
+	return model.columns === 53 && metrics.cell === 8.26 && Math.abs(used - 620) <= 2;
+})(), '620px 天模式');
+// 行区高度：四种模式都必须塞进 95px（切模式不跳、不出纵向滚动条）。
+check('四种模式的行区高度都 ≤ 95px（不出纵向滚动条）', __test.TA_MODES.every((mode) => {
+	const model = __test.buildHeatmap(days, mode, new Date());
+	return [320, 620, 900].every((width) => {
+		const metrics = __test.taGridMetrics(mode, width, model);
+		return model.rows * metrics.cell + (model.rows - 1) * metrics.rowGap <= __test.TA_GRID_ROWS_HEIGHT;
+	});
+}), `行区上限 ${__test.TA_GRID_ROWS_HEIGHT}px`);
+
+// ── 4d. 合计 / 有记录 N 天：**只数真实数据**，绝不被 0 档占位格影响 ──────────────────
+console.log('\n— 合计与「有记录 N 天」不受 0 档占位格影响 —');
+for (const mode of __test.TA_MODES) {
+	const model = __test.buildHeatmap(THREE_DAYS, mode, NOW);
+	check(`${mode}：假数据 3 天 → 合计 = 10+20+30 = 60、有记录 = 3 天（占位格不进统计）`, model.total === 60 && model.days === 3, `合计=${model.total} 有记录=${model.days} 天（图上格子 ${model.cells.flat().length} 个）`);
+}
+/** 页脚那行「合计 XXX · 有记录 N 天」的原文。 */
+const summaryOf = (html) => {
+	const match = /data-dta-summary="1"[^>]*>([^<]*)</u.exec(strip(html));
+	return match === null ? '' : match[1];
+};
+const threeHtml = renderCard(cardState({ external: { phase: 'ready', days: THREE_DAYS, error: null, errorCode: null, ready: true }, mode: 'day' }), '合计 3 天');
+check('卡片页脚写着「合计 60 · 有记录 3 天」（0 档占位格没有把数字撑大）', summaryOf(threeHtml) === '合计 60 · 有记录 3 天', summaryOf(threeHtml));
+
+// ── 4e. 0 档占位格的浮层口径：**也出浮层**，与「有记录但为 0」的格子同一套文案 ──────
+console.log('\n— 0 档占位格的浮层口径（0 Token） —');
+/** 从某个模式的网格里取一个 0 档占位格（有日期、但不属于「有记录」那天 / 那周）。 */
+const placeholderOf = (mode) => {
+	const model = __test.buildHeatmap(THREE_DAYS, mode, NOW);
+	const records = new Set(Object.keys(THREE_DAYS));
+	return model.cells.flat().find((cell) => cell !== null && cell.level === 0 && !records.has(cell.date));
+};
+for (const mode of __test.TA_MODES) {
+	const cell = placeholderOf(mode);
+	const tip = __test.tokenTooltip(cell, mode);
+	const unit = __test.TA_PALETTE[mode].unit;
+	check(`${mode}：0 档占位格也出浮层（标题是日期、第二行是 \`0 ${unit}\`）`, cell !== undefined && tip.title !== '' && tip.value === '0' && tip.unit === unit, JSON.stringify(tip));
+}
+check('0 档占位格的浮层文案与「有记录但为 0」的格子完全一致（同一套 tokenTooltip）', (() => {
+	const zeroCell = { date: '2026-10-05', key: '2026-10-05', value: 0, level: 0, label: '10月5日' };
+	const placeholder = placeholderOf('day');
+	return JSON.stringify(__test.tokenTooltip(zeroCell, 'day')) === JSON.stringify({ title: '10月5日', value: '0', unit: '每天 Token' }) && __test.tokenTooltip(placeholder, 'day').value === '0';
+})());
 
 // ── 5. 悬停浮层 ────────────────────────────────────────────────────────────
 console.log('\n— 悬停浮层 —');
