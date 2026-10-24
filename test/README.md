@@ -27,9 +27,11 @@ node test/dsh-conversations-test.mjs       # 「导入 → 对话记录」页签
 node test/dsh-conversations-host-test.mjs  # 同上的宿主侧：真实 HOME 只读解析 + 临时 DSH_HOME 写会话
 node test/dsh-token-activity-test.mjs      # 「Token 活动」热力图：四种模式/配色/悬停浮层/布局高度一致（113px）/固定窗口铺满宽度（天=53 列、周=13 列、年=每行 12 格铺满）/**0 档占位格不计入合计**/年=每年一行×12/四种 phase 都不空白/聚合纯函数/锚点/导航门控
 node test/dsh-token-activity-host-test.mjs # 同上的宿主侧：多帧 zstd 解码 + 按天汇总 + 缓存 + /usage/daily 路由
+node test/dsh-own-plugins-test.mjs        # 「我的插件」设置页（`own-plugins`，order 171）：读取中/有数据/空清单、搜索（AND）、失败与缓存降级、注册位置在 token-activity 后面、组件不用注入的 t
+node test/dsh-own-plugins-host-test.mjs   # 同上的宿主侧（假 GitHub，默认不联网）：只挑自己的插件（topic / CURATED、排除 fork/archived）、字段成形、排序、10 分钟缓存与 refresh、500/403/坏格式降级、/own-plugins 路由接上了；`DSH_OWN_PLUGINS_LIVE=1` 才打真 GitHub
 ```
 
-一次跑完（14 套 → 现在 **20 套**）：
+一次跑完（14 套 → 现在 **22 套**）：
 
 ```bash
 cd <仓库根> && export DSH_TEST_DEPS=/tmp/dsudep9/package.json && for f in test/*.mjs; do node "$f" || echo "FAILED $f"; done
@@ -260,6 +262,37 @@ v1.9.1 起它不是「智能体」页里的分支了：`settings.section` 里多
 `host-search-test.mjs` / `host-sources-test.mjs` 会打 GitHub 公开 API（未登录 **60 次/小时**）。
 这两套开头会先查 `rate_limit`：配额为 **0** 就打印「跳过：GitHub 未登录配额已用完」并以退出码 0 结束 ——
 **这不是回归**。别把配额用尽当成代码坏了（曾经误报过两次）。
+
+## 「我的插件」设置页（`settings.section` = `own-plugins`，order 171）怎么测
+
+v1.11.0 新增：导航最下面、「Token 活动」（170）下面一页，列自己开发的 DSH 插件，可搜、可打开 GitHub。
+
+- `test/dsh-own-plugins-test.mjs`：纯客户端，套路同别的渲染测试（`renderToStaticMarkup` + 受控 `useState` 队列）。
+  **队列顺序 = `OwnPluginsPage` 里 `useState` 的调用顺序，一共 3 个**：`state, query, refreshing`
+  —— 少喂一个后面就串位。覆盖：读取中 / 有数据 / 空清单、计数文案、版本徽标（没版本的不显示）、
+  `已收录市场`、star 与更新日期、没有简介的占位、三个按钮（GitHub / 市场页 / 复制安装命令）、
+  按名字 / 中文简介 / topic 搜索、多关键字 AND、搜不到的文案、失败（`role="alert"`）、
+  缓存降级提示、复制结果提示、纯函数 `ownPluginMatches` / `ownPluginDate`、注册位置（order 171、排在 170 后、无重复 id）。
+- `test/dsh-own-plugins-host-test.mjs`：宿主侧，**默认不联网**（假 fetch 按 URL 分派）。
+  覆盖：只留 topic 命中或 `CURATED` 的仓库（fork / archived / 无关仓库排除）、字段与排序、
+  版本号从 raw `package.json` 拿（拿不到 = null 不抛）、**10 分钟缓存（第二次 0 请求）与 `refresh: true`**、
+  GitHub 500 / 403 / 坏格式**有缓存回缓存并标 `stale`**、没缓存才抛（403 给「限流」人话），
+  以及源码级断言 `index.js` 里 import + `GET /own-plugins` 路由 + `refresh=1` 透传。
+  `DSH_OWN_PLUGINS_LIVE=1` 时才真的打 GitHub（会吃配额）。
+
+### ⚠️ 「我的插件」必须保留的约束
+
+1. **纯只读**：这一页只调 `GET /own-plugins`，不写文件、不改配置、不装/卸插件。要「顺手装一下」的话另开一页，别塞进来。
+2. **`t` 不能用**：这一页不声明 locale、组件也不接 props（`OwnPluginsPage.length === 0` 有断言）。
+   dsh 0.2.1（Desktop 2.0.18）起 `t` 只注入给声明了 `locale` 的条目，这一页干脆不用 ——
+   要么全中文硬编码（现在这样），要么就老老实实 `locale: NS`，别一半一半。
+3. **order 是 171**：必须紧跟在「Token 活动」170 后面，并且不撞任何已有 id（`skills 130 / mcp 140 / agents 150 / other-ai 160 / token-activity 170`）。
+4. **GitHub 配额要省**：仓库清单一次请求 + 每个仓库一次 raw `package.json`，**缓存 10 分钟**；
+   别把缓存删了，也别在组件里逐条再打接口 —— 未登录 60 次/小时，刷几次就 403。
+5. **降级不许崩**：GitHub 任何失败（500 / 403 限流 / 返回不是数组 / 断网）都按「有缓存回缓存 + `stale: true`，
+   没缓存抛错」走；界面三种状态（loading / error / stale）都要有可见文案，不许白屏、不许一直转圈。
+6. **`CURATED` 不是「硬编码名单」**：它是「早期没打 topic、但市场已收录」的兜底；新插件优先靠
+   `dsh-plugin` / `dsh-bundle` topic 自动发现，**不要**每加一个插件就往 `CURATED` 里塞。
 
 ## 「Token 活动」热力图（portal 宿主挂 `shell.overlay` + 兜底页 `token-activity`，order 170）怎么测
 

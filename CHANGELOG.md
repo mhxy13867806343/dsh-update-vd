@@ -2,6 +2,27 @@
 
 只记行为变化，不记内部重构。每次改动都在仓库里跑测试（见 `test/README.md`）。
 
+## 1.11.0
+- **新（设置 →「我的插件」）**：导航最下面、「Token 活动」下面多一页，列出**自己开发的 DSH 插件**（用户原话：
+  「在 token 下面加一个，用于展示哪些插件是自己开发的，以列表的时候，可以打开对应的 github 页面的，也可以搜索之类的」）。
+  - 每条：名字 / 版本号 / `已收录市场` 徽标 / ★ 数 / 最后更新 / 仓库简介；右边 `GitHub`、`市场页`（收录过的才有）、
+    `复制安装命令`（`dsh plugin --profile web add github:<owner>/<repo>`）。
+  - **本地搜索**：名字 / 全名 / 简介 / topic，空格分隔多个关键字是 AND；搜不到给「没有匹配的插件。」。
+  - **哪些算自己的插件**：仓库打了 `dsh-plugin` / `dsh-bundle` topic 的自动出现，外加 `CURATED`
+    （`dsh-update-vd`、`dsh-sidebar-account`、`my-dsh-desktop-extra` —— 早期没打 topic 但市场已收录的）；
+    fork / 归档仓库自动排除。
+  - **宿主新增 `GET /api/dsh-update-vd/own-plugins`**（`lib/own-plugins.js`）：GitHub 用户仓库一次拿全 + 每仓库一次
+    raw `package.json` 取版本号（best effort，拿不到就 `—`）；**缓存 10 分钟**、`?refresh=1` 强刷；
+    GitHub 500 / 403 限流 / 返回格式不对时**有缓存就回缓存并标 `stale`**，没缓存才报错（403 给「限流」人话）。
+  - `lib/index.js` 动了 → `CODE_TAG` 同步为 `v1.11.0`（**要重启应用才生效**；没重启时这一页会提示「宿主还是旧版本」）。
+  - 纯只读页：不写文件、不改配置。
+  - 测试 20 套 → **22 套**（新增客户端渲染 `dsh-own-plugins-test.mjs` + 宿主路由 `dsh-own-plugins-host-test.mjs`，
+    后者默认不联网，`DSH_OWN_PLUGINS_LIVE=1` 才打真 GitHub）。
+  - 顺手修掉一条**会随真实数据漂移成假失败**的断言：`dsh-conversations-host-test.mjs` 里
+    「标题不是纯 id 的比例够高」原来按**全部** Codex 会话算（143 条里 102 条是脚本化会话、根本没有用户消息，
+    41/143 = 28.7% < 30% → 误报）；改成只在「有首条用户消息」的会话上衡量（要求 ≥90%），
+    因为「没有可当标题的文本就退回 session id」本来就是正确行为。
+
 ## 1.10.6
 - **修（升级到 Desktop 2.0.18 后，点开「设置 → Token 活动」整页空白）**：用户截图原话「这边怎么空白了 难道报错了？？？？？？」。
   - 升级**本身是成功的**（`install.log`：`install 2.0.18`、签名校验通过、app 已替换；`state.json` 里 `code=v1.10.5`、`currentVersion=2.0.18`）。

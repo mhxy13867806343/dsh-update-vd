@@ -280,7 +280,16 @@ async function verifySource(id, label, defaults) {
 	check(`${label}：解析出 ${String(rows.length)} 个对话`, rows.length > 0);
 	check(`${label}：每条都有 id / 标题 / 时间 / 消息条数`, sample.every((row) => typeof row.id === 'string' && row.id !== '' && typeof row.title === 'string' && row.title !== '' && typeof row.createdAt === 'string' && Number.isFinite(row.messages)), JSON.stringify(sample.slice(0, 2).map((row) => ({ id: row.id.slice(0, 20), title: row.title.slice(0, 24), msgs: row.messages, at: row.createdAt }))));
 	check(`${label}：至少有一条能解析出「首条用户消息摘要」`, rows.some((row) => typeof row.firstUser === 'string' && row.firstUser.length > 2), sample.map((row) => row.firstUser?.slice(0, 30)).filter(Boolean).slice(0, 2).join(' | '));
-	check(`${label}：标题不是纯 id 的比例够高`, rows.filter((row) => row.title !== row.id).length >= Math.ceil(rows.length * 0.3), `${String(rows.filter((row) => row.title !== row.id).length)}/${String(rows.length)} 条有真标题`);
+	// 标题的质量只能在「有首条用户消息」的那些会话上衡量：只有工具/系统事件的会话
+	// （例如脚本化跑出来的 codex exec）本来就没有可当标题的文本，退回 session id 是**正确行为**，
+	// 不是解析失败。以前按「全部会话的 30%」算，量大了之后会被这类会话稀释成假失败
+	// （2026-10-24：143 条里 102 条没有用户消息 → 41/143 < 30%）。
+	const titled = rows.filter((row) => typeof row.firstUser === 'string' && row.firstUser.length > 2);
+	check(
+		`${label}：有首条用户消息的对话，标题都用上了它（不是纯 id）`,
+		titled.length === 0 ? 'skip' : titled.filter((row) => row.title !== row.id).length >= Math.ceil(titled.length * 0.9),
+		`${String(titled.filter((row) => row.title !== row.id).length)}/${String(titled.length)} 条有真标题（总 ${String(rows.length)} 条，其余 ${String(rows.length - titled.length)} 条没有用户消息）`,
+	);
 	// 上游会把注入上下文塞进「用户消息」里（<recommended_plugins> / # AGENTS.md instructions…），
 	// 这些绝对不能当标题露出来 —— 一路都是注入块就老实退回 session id
 	const noisy = rows.filter((row) => /^\s*(?:<[a-z]|#\s*AGENTS\.md)/iu.test(row.title));
