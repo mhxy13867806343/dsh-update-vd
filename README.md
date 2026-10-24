@@ -30,7 +30,9 @@
 | 下载完成 | 自动挂载 DMG → 校验版本与签名 → 替换 app → 自动重启 |
 
 ### 3. 装机细节
-- 全程只请求 `dshdesktop.cn` 两个固定端点，重定向到别的主机直接拒绝。
+- 全程只请求 `dshdesktop.cn` 两个固定端点；重定向只放行 `dshdesktop.cn` 与官方镜像
+  `modelscope.cn`（2026-10 起下载端点 302 到 `modelscope.cn` → `cdn-lfs-cn-1.modelscope.cn`），
+  其它主机一律拒绝。放行镜像不降低最终校验强度：DMG 仍要过 `codesign` 验签 + bundle id / 版本核对。
 - 安装前先整份 `ditto` 到暂存目录并 `codesign --verify --deep --strict` 验签，
   通过之后才「移开旧的 / 换上新的」（任一步失败都把旧的搬回来）。
 - 退出旧 app 用三保险：`killall -TERM <CFBundleExecutable>` → `osascript … quit` →

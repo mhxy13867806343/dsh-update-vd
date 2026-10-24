@@ -63,5 +63,38 @@ check('代码里没有直接读 hooks.input.draft', !/\.input\.draft|input\?\.dr
 	check('所有 `void X(...)` 处理器都有定义/声明', missing.length === 0, missing.join(', ') || `共 ${called.size} 个处理器全部有定义`);
 }
 
+// ⑦ 曾经：官方下载端点 302 到 ModelScope 镜像，白名单只放行 dshdesktop.cn → 下载一个字节都没下，
+//    直接报「更新服务把请求指向了不受信任的主机：cdn-lfs-cn-1.modelscope.cn」（2026-10-23 真机）。
+{
+	const allowed = /const ALLOWED_HOSTS = \[([^\]]*)\]/u.exec(index)?.[1] ?? '';
+	const hosts = [...allowed.matchAll(/'([^']+)'/gu)].map((m) => m[1]);
+	check('下载白名单含官方服务主机与 ModelScope 镜像', hosts.includes('dshdesktop.cn') && hosts.includes('modelscope.cn'), hosts.join(', ') || '没解析到 ALLOWED_HOSTS');
+	const endpoints = [...index.matchAll(/const (?:VERSION|DOWNLOAD)_ENDPOINT = '([^']+)'/gu)].map((m) => m[1]);
+	const covered = endpoints.length === 2 && endpoints.every((url) => {
+		const host = new URL(url).hostname;
+		return hosts.some((a) => host === a || host.endsWith(`.${a}`));
+	});
+	check('版本 / 下载两个端点自己的主机都在白名单里', covered, endpoints.map((u) => new URL(u).hostname).join(', ') || '没解析到端点');
+	check('非 https 与「白名单外主机」仍然逐跳拒绝', index.includes("if (target.protocol !== 'https:')") && index.includes('host.endsWith(`.${allowed}`)'), '');
+}
+
+// ⑧ 曾经：升级到 Desktop 2.0.18（dsh 0.2.1-rc.2）后点开「设置 → Token 活动」整页空白。
+//    控制台：`TypeError: t is not a function` / `slot entry crashed in 'settings.section'`。
+//    原因：新版渲染器只给**声明了 `locale`** 的注册项注入 `t`（standardKit：`if (entry.locale !== void 0)`），
+//    这个兜底页的注册项少了 `locale: NS` → `t` 是 undefined → 组件一渲染就崩。
+{
+	check('TokenActivityPage 依赖注入的 t', /function TokenActivityPage\(\{ t \}\)/u.test(client));
+	check('token-activity 兜底页注册项带 locale: NS', /id: 'token-activity'[^}]*\blocale: NS\b/u.test(client), '');
+	// 凡是**直接注册进 slot** 且 props 里有 `t` 的组件，注册项那一条都必须带 locale
+	//（同一类坑的通用护栏；TokenActivityCard / footer* 这类从父组件拿 t 的子组件不算）。
+	const tComponents = new Set([...client.matchAll(/function ([A-Za-z_$][\w$]*)\(\{[^}]*\bt\b[^}]*\}\)/gu)].map((m) => m[1]));
+	const registeredT = [...tComponents].filter((component) => new RegExp(`ctx\\.slots\\.register\\(\\s*\\{[^}]*\\},\\s*${component}\\s*,?\\s*\\)`, 'u').test(client));
+	const missingLocale = registeredT.filter((component) => {
+		const call = new RegExp(`ctx\\.slots\\.register\\(\\s*\\{[^}]*\\},\\s*${component}\\s*,?\\s*\\)`, 'u').exec(client);
+		return call === null || !/\blocale:\s*NS\b/u.test(call[0]);
+	});
+	check('用 t 的组件注册时都声明了 locale', missingLocale.length === 0 && registeredT.length >= 5, missingLocale.join(', ') || `直接注册的 ${registeredT.length} 个组件全部声明（候选 ${tComponents.size} 个）`);
+}
+
 console.log(fail === 0 ? '\n全部通过' : `\n${fail} 项失败`);
 process.exit(fail === 0 ? 0 : 1);

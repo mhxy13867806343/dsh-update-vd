@@ -2,6 +2,37 @@
 
 只记行为变化，不记内部重构。每次改动都在仓库里跑测试（见 `test/README.md`）。
 
+## 1.10.6
+- **修（升级到 Desktop 2.0.18 后，点开「设置 → Token 活动」整页空白）**：用户截图原话「这边怎么空白了 难道报错了？？？？？？」。
+  - 升级**本身是成功的**（`install.log`：`install 2.0.18`、签名校验通过、app 已替换；`state.json` 里 `code=v1.10.5`、`currentVersion=2.0.18`）。
+    空白的只是设置里那一页 —— 宿主日志里有明确报错：
+    `TypeError: t is not a function` + `slot entry crashed in 'settings.section'`。
+  - 根因是 dsh 0.2.1-rc.2（Desktop 2.0.18）改了 slot 的注入规则：渲染器**只给声明了 `locale` 命名空间**的条目注入
+    `t`（`standardKit()` 里 `if (entry.locale !== void 0) …`）。本插件那个兜底设置页
+    `settings.section` / `id: 'token-activity'` 的注册项当时**没带 `locale: NS`**，于是 `TokenActivityPage({ t })`
+    拿到 `undefined`，一渲染就抛 `t is not a function`，被 slot 错误边界整页兜掉 → 空白。
+  - 修法：给这一条注册补上 `locale: NS`（与插件里其它用到 `t` 的注册项一致，
+    `sidebar.footer.action` / 两个弹窗 / `shell.overlay` 的 portal 宿主本来就都带着）。
+  - 只改了客户端 → `CODE_TAG` **不动**（仍是 `v1.10.5`），**刷新页面即可**，不用重启应用。
+  - 测试仍是 20 套，`regressions-test.mjs` 加了一条通用护栏：
+    **凡是用 `({ t })` 的组件，`ctx.slots.register` 那一条必须带 `locale: NS`**（4 个组件全部被这条盯着）。
+
+## 1.10.5
+- **修（下载直接失败：更新服务把请求指向了不受信任的主机：cdn-lfs-cn-1.modelscope.cn）**：
+  用户截图原话「升级 APP → 更新服务把请求指向了不受信任的主机」。
+  - 根因不在网络：官方下载端点 `https://www.dshdesktop.cn/api/downloads/mac` 现在返回
+    `302 → https://modelscope.cn/models/t4wefan/deepseek-harness-desktop/resolve/master/DSH%20Desktop-2.0.18-universal.dmg`
+    → 再 `302 → https://cdn-lfs-cn-1.modelscope.cn/prod/lfs-objects/...`。
+    本插件的 `assertSecureUrl()` 只放行 `dshdesktop.cn`（含子域），跟到第二跳就被自己的白名单拒了，
+    于是 `phase=error`、一个字节都没下（`state.json` 里 `receivedBytes: 0`）。
+  - 修法：`ALLOWED_HOSTS` 从 `['dshdesktop.cn']` 加到 `['dshdesktop.cn', 'modelscope.cn']`（子域自动匹配，
+    `cdn-lfs-cn-1.modelscope.cn` 跟着放行）。仍然逐跳校验主机、非 https 一律拒绝，
+    只是把「官方下载端点自己选择的镜像」也算作可信落点；最终校验强度不变 ——
+    `install.sh` 照样 `codesign --verify --deep --strict` + 核对 bundle id / 版本号，签不对装不上。
+  - `lib/index.js` 动了 → `CODE_TAG` 同步为 `v1.10.5`（**要重启应用才生效**，改完文件不重启跑的还是旧宿主代码）。
+  - 测试仍是 20 套，`regressions-test.mjs` 把这条钉进去：
+    `ALLOWED_HOSTS` 必须同时含两个官方服务主机与 `modelscope.cn`，且版本/下载两个端点的主机必须在白名单里。
+
 ## 1.10.4
 - **修（年模式没有平均分配，12 个月格挤在左边留一大块空白）**：用户原话「年的没平均分配呀」。
   v1.10.3 只把「天 / 周 / 累计」改成了铺满，年模式当时被要求**保持现状** —— 现在也铺满：

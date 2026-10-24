@@ -314,6 +314,12 @@ v1.9.1 起它不是「智能体」页里的分支了：`settings.section` 里多
     模块级出错文案走 `taTr()`（按 `ctx.locale` 的活动语言查 `zh` / `en` 字典）。
     以前在模块级写 `t(...)` 会 ReferenceError，直接把错误态整片变空白。
     失败原因同时给**人话文案**（`taErrorText`）和**机器可读原因码**（`taErrorCode`：`host-old` 等）。
+    ★ **dsh 0.2.1-rc.2（Desktop 2.0.18）起，`t` 只注入给声明了 `locale` 的 slot 条目**
+    （渲染器 `standardKit()`：`if (entry.locale !== void 0) kit.t = localeSeat(face, entry.locale)`）。
+    所以凡是用 `({ t })` 的组件，`ctx.slots.register({ … }, 组件)` 那一条**必须带 `locale: NS`** ——
+    少写一句不报错、只在真机上把整页渲染崩成空白（`TypeError: t is not a function` +
+    `slot entry crashed in 'settings.section'`，v1.10.6 的真机 bug）。
+    `regressions-test.mjs` 第 ⑧ 条会扫「用 `({ t })` 的组件 + 它的 register 调用」逐个核对。
 
 11. **portal 宿主不能注册进 `settings.section`**（会导致导航多一条空白行）+ **卡片任何 phase 都不能 `return null`**。
     这两条是 v1.10.1 修的两个真机 bug，任何一个回退，用户就会看到「导航多一条空白」或「点开整页全白」：
