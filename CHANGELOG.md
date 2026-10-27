@@ -2,6 +2,24 @@
 
 只记行为变化，不记内部重构。每次改动都在仓库里跑测试（见 `test/README.md`）。
 
+## 1.11.1
+- **修（侧栏永远「安装中」、升级弹窗卡在「正在安装并重启应用」不动）**：用户截图原话「一直这样 的了？？？」。
+  查下来是**两个 bug 叠在一起**，一个让装错包、一个让错误被吞掉：
+  - ① **版本查询头名写错了**：插件一直发 `X-DSH-Desktop-Version`，而官方客户端发的是
+    `X-DSH-Desktop-Current-Version`。服务端不认旧头名，把它当成「未知老客户端」，于是 stable 通道回了
+    **2.0.20-next**（实测同一接口：发官方头名 → `{"version":"2.0.18"}`；发旧头名 → `{"version":"2.0.20-next"}`）。
+    而 2.0.20-next 的 DMG 里是 **DSH NEXT.app**（bundle id `ai.deepseek.dsh.desktop.next`），根本不是 DSH Desktop。
+    → 改用官方头名。
+  - ② **安装脚本失败被吞掉**：install.sh 是 detached 拉起的，插件不看它的退出码。脚本里
+    「DMG 里的 app 不是 DSH Desktop」失败退出后，插件仍停在 `installing` → 界面永远「安装中」，
+    而且下次检查还会拿同一个坏包再装一遍。
+    → `install()` 现在盯 `exit` / `error`：非 0 就把状态落成 `phase: 'error'`、**删掉那个装不上的 DMG**、
+    清掉 `artifactPath / artifactReady`，并把 install.log 里最后一条「失败：…」当成人话显示；
+    `start()` 发现上次残留的 `installing` 也会恢复成 `error`（重启后不再假装还在装）。
+  - 新增 `installFailureLine()`（导出）+ 第 23 套测试 `dsh-update-failure-test.mjs`：日志解析 6 条 +
+    源码护栏（官方头名 / 盯 exit / 失败落 error 且删包 / 启动恢复）。
+  - `lib/index.js` 动了 → `CODE_TAG` 同步 `v1.11.1`（**要重启应用才生效**）；顺手删掉了缓存里那个 755MB 的坏包。
+
 ## 1.11.0
 - **新（设置 →「我的插件」）**：导航最下面、「Token 活动」下面多一页，列出**自己开发的 DSH 插件**（用户原话：
   「在 token 下面加一个，用于展示哪些插件是自己开发的，以列表的时候，可以打开对应的 github 页面的，也可以搜索之类的」）。

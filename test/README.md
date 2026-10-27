@@ -29,9 +29,10 @@ node test/dsh-token-activity-test.mjs      # 「Token 活动」热力图：四�
 node test/dsh-token-activity-host-test.mjs # 同上的宿主侧：多帧 zstd 解码 + 按天汇总 + 缓存 + /usage/daily 路由
 node test/dsh-own-plugins-test.mjs        # 「我的插件」设置页（`own-plugins`，order 171）：读取中/有数据/空清单、搜索（AND）、失败与缓存降级、注册位置在 token-activity 后面、组件不用注入的 t
 node test/dsh-own-plugins-host-test.mjs   # 同上的宿主侧（假 GitHub，默认不联网）：只挑自己的插件（topic / CURATED、排除 fork/archived）、字段成形、排序、10 分钟缓存与 refresh、500/403/坏格式降级、/own-plugins 路由接上了；`DSH_OWN_PLUGINS_LIVE=1` 才打真 GitHub
+node test/dsh-update-failure-test.mjs     # 更新链路两个真机 bug：版本查询头名（官方 X-DSH-Desktop-Current-Version / 不许旧头名）、install.log 失败原因解析、安装脚本失败必须落 error 且删坏包、启动时残留 installing 必须恢复成 error
 ```
 
-一次跑完（14 套 → 现在 **22 套**）：
+一次跑完（14 套 → 现在 **23 套**）：
 
 ```bash
 cd <仓库根> && export DSH_TEST_DEPS=/tmp/dsudep9/package.json && for f in test/*.mjs; do node "$f" || echo "FAILED $f"; done
